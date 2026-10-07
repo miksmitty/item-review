@@ -7,7 +7,7 @@ const PORT = process.env.PORT || 3120;
 const DATA_DIR = path.join(__dirname, 'data');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const STATUSES = ['pending', 'approved', 'changes_requested', 'rejected'];
-const MIME = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript' };
+const MIME = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.csv': 'text/csv' };
 
 const file = name => path.join(DATA_DIR, name + '.json');
 function load(name, fallback) {
@@ -32,7 +32,8 @@ function readBody(req) {
 
 // State: dataset {fileName, columns, rows, imported}, settings, reviews {[id]: {status, comments}}
 async function api(req, res, url) {
-  const parts = url.pathname.split('/').filter(Boolean);
+  // The app may sit behind a proxy under a path prefix (e.g. /proxy/3001/), so find /api/ anywhere.
+  const parts = url.pathname.slice(url.pathname.indexOf('/api/')).split('/').filter(Boolean);
   // Some corporate proxies block PUT, so PUT and POST are treated the same.
   const method = req.method === 'PUT' ? 'POST' : req.method;
   let body = {};
@@ -92,19 +93,22 @@ async function api(req, res, url) {
 }
 
 function serveStatic(req, res, url) {
-  const rel = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
-  const target = path.join(PUBLIC_DIR, rel);
-  if (!target.startsWith(PUBLIC_DIR)) { res.writeHead(403); return res.end(); }
-  fs.readFile(target, (err, data) => {
-    if (err) { res.writeHead(404); return res.end('Not found'); }
+  // Try the path as given, then with leading segments removed, so a proxy prefix is ignored.
+  const segs = url.pathname.split('/').filter(Boolean);
+  for (let k = 0; k <= segs.length; k++) {
+    const target = path.join(PUBLIC_DIR, segs.slice(k).join('/') || 'index.html');
+    if (!target.startsWith(PUBLIC_DIR)) continue;
+    let st; try { st = fs.statSync(target); } catch { continue; }
+    if (!st.isFile()) continue;
     res.writeHead(200, { 'Content-Type': MIME[path.extname(target)] || 'application/octet-stream' });
-    res.end(data);
-  });
+    return fs.createReadStream(target).pipe(res);
+  }
+  res.writeHead(404); res.end('Not found');
 }
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
-  if (url.pathname.startsWith('/api/')) return api(req, res, url);
+  if (url.pathname.includes('/api/')) return api(req, res, url);
   serveStatic(req, res, url);
 });
 server.on('error', err => {

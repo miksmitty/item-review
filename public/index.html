@@ -121,7 +121,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = d => new Date(d).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 async function send(path, method, body) {
-  const res = await fetch('/api/' + path, { method: method === 'PUT' ? 'POST' : method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const res = await fetch('api/' + path, { method: method === 'PUT' ? 'POST' : method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const text = await res.text();
   try { return JSON.parse(text); }
   catch { throw new Error(`Server replied ${res.status} ${res.statusText} to ${path}, not JSON: ${text.slice(0, 160).replace(/\s+/g, ' ')}`); }
@@ -202,7 +202,7 @@ async function doImport(f) {
 async function load() {
   let detail = '';
   try {
-    const res = await fetch('/api/state');
+    const res = await fetch('api/state');
     const text = await res.text();
     detail = `/api/state replied ${res.status} ${res.statusText}: ${text.slice(0, 120).replace(/\s+/g, ' ')}`;
     ({ dataset, settings, reviews } = JSON.parse(text));
@@ -388,7 +388,7 @@ document.addEventListener('mouseup', e => {
 
 // ---- events ----
 $('#demoBtn').onclick = async () => {
-  const text = await fetch('/sample-items.csv').then(r => r.text());
+  const text = await fetch('sample-items.csv').then(r => r.text());
   importFile(new File([text], 'sample-items.csv'));
 };
 $('#importBtn').onclick = () => $('#file').click();
