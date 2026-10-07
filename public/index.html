@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Item Review</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #fff; --text: #1d2330; --muted: #6b7280; --border: #e2e5ea; --accent: #2563eb; --sel: #e8effd;
+    --pending: #b45309; --approved: #15803d; --changes_requested: #c2410c; --rejected: #b91c1c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14171d; --card: #1d222b; --text: #e8eaee; --muted: #98a1b0; --border: #2e3541; --accent: #60a5fa; --sel: #1f2a40;
+      --pending: #fbbf24; --approved: #4ade80; --changes_requested: #fb923c; --rejected: #f87171; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; font: 14px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--text); display: flex; flex-direction: column; }
+  button, input, textarea, select { font: inherit; color: inherit; }
+  input, textarea, select { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; }
+  button { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 5px 11px; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  header { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--card); flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 17px; margin-right: auto; }
+  .meta { color: var(--muted); font-size: 12px; }
+  #app { flex: 1; display: grid; grid-template-columns: var(--leftw, 460px) 6px 1fr; min-height: 0; }
+  #left { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--card); }
+  #split { cursor: col-resize; background: var(--border); }
+  #split:hover, #split.drag { background: var(--accent); }
+  #tools { padding: 8px; display: flex; gap: 6px; border-bottom: 1px solid var(--border); }
+  #tools input { flex: 1; min-width: 0; }
+  #list { overflow: auto; flex: 1; outline: none; }
+  .lhead, .row { display: grid; grid-template-columns: var(--cols); width: max-content; min-width: 100%; }
+  .lhead { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--border); }
+  .hc { position: relative; padding: 6px 10px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: grab; user-select: none; border-right: 1px solid var(--border); }
+  .hc.over-before, .fld.over-before { box-shadow: inset 3px 0 0 var(--accent); }
+  .hc.over-after { box-shadow: inset -3px 0 0 var(--accent); }
+  .fld.over-before { box-shadow: inset 0 3px 0 var(--accent); }
+  .fld.over-after { box-shadow: inset 0 -3px 0 var(--accent); }
+  .dragging { opacity: .45; }
+  .rh, .lh { position: absolute; top: 0; bottom: 0; right: 0; width: 7px; cursor: col-resize; }
+  .rh:hover, .lh:hover, .rh.drag, .lh.drag { background: var(--accent); opacity: .5; }
+  .row { border-bottom: 1px solid var(--border); cursor: pointer; }
+  .row:hover { background: var(--bg); }
+  .row.sel { background: var(--sel); box-shadow: inset 3px 0 0 var(--accent); }
+  .cell { padding: 7px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cell.id { font-weight: 600; color: var(--accent); }
+  .cell.dotc { display: flex; align-items: center; justify-content: center; padding: 0; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--border); }
+  .dot.pending { background: transparent; border: 1px solid var(--muted); }
+  .dot.approved { background: var(--approved); } .dot.changes_requested { background: var(--changes_requested); } .dot.rejected { background: var(--rejected); }
+  #right { overflow-y: auto; padding: 20px 28px 40px; min-height: 0; min-width: 0; --lw: 170px; }
+  #right h2 { margin: 0 0 4px; font-size: 20px; }
+  .fields { margin: 16px 0; }
+  .fld { display: grid; grid-template-columns: 18px var(--lw) 1fr; gap: 0 10px; padding: 7px 0; border-bottom: 1px solid var(--border); }
+  .grip { cursor: grab; color: var(--muted); user-select: none; text-align: center; }
+  .lbl { position: relative; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .03em; padding-top: 2px; }
+  .lh { right: -7px; }
+  .val { white-space: pre-wrap; word-break: break-word; resize: vertical; overflow: auto; min-height: 1.4em; padding-right: 4px; }
+  .review { border-top: 1px solid var(--border); margin-top: 20px; padding-top: 14px; }
+  .statuses { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .statuses button.on { font-weight: 600; border-color: currentColor; }
+  .comment { margin: 8px 0; }
+  .cform { display: grid; grid-template-columns: 130px 1fr auto; gap: 6px; margin-top: 8px; }
+  .pending { color: var(--pending); } .approved { color: var(--approved); }
+  .changes_requested { color: var(--changes_requested); } .rejected { color: var(--rejected); }
+  .empty { color: var(--muted); text-align: center; padding: 60px 20px; }
+  /* fields dialog */
+  dialog { border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--text); padding: 0; width: min(640px, 94vw); }
+  dialog::backdrop { background: rgba(0,0,0,.4); }
+  .dlg-h { padding: 14px 18px; border-bottom: 1px solid var(--border); font-weight: 600; }
+  .dlg-b { padding: 14px 18px; max-height: 60vh; overflow-y: auto; }
+  .dlg-f { padding: 12px 18px; border-top: 1px solid var(--border); text-align: right; }
+  .sel2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+  .sel2 label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+  table.f { width: 100%; border-collapse: collapse; }
+  table.f th, table.f td { padding: 5px 8px; text-align: left; border-bottom: 1px solid var(--border); }
+  table.f th:not(:first-child), table.f td:not(:first-child) { text-align: center; width: 70px; }
+  #drop { border: 2px dashed var(--border); border-radius: 12px; margin: 60px auto; padding: 50px; max-width: 520px; text-align: center; color: var(--muted); }
+  #drop.over { border-color: var(--accent); color: var(--accent); }
+  @media (max-width: 760px) { #app { grid-template-columns: 1fr; grid-template-rows: 45% 1fr; } #split { display: none; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Item Review</h1>
+  <span class="meta" id="info"></span>
+  <button id="fieldsBtn" hidden>Fields…</button>
+  <button id="importBtn">Import CSV</button>
+  <input type="file" id="file" accept=".csv,text/csv" hidden>
+</header>
+<div id="empty" hidden><div id="drop">Drop a CSV exported from SharePoint here, or click <b>Import CSV</b>.</div></div>
+<div id="app" hidden>
+  <section id="left">
+    <div id="tools">
+      <input id="search" type="search" placeholder="Search all fields…">
+      <select id="statusFilter"></select>
+    </div>
+    <div id="list" tabindex="0"></div>
+  </section>
+  <div id="split" title="Drag to resize"></div>
+  <section id="right"></section>
+</div>
+
+<dialog id="dlg">
+  <div class="dlg-h">Choose fields <span class="meta" style="font-weight:400">· drag list headers and preview grips (⋮⋮) to reorder, drag edges to resize</span></div>
+  <div class="dlg-b">
+    <div class="sel2">
+      <label>ID column<select id="idCol"></select></label>
+      <label>Title column<select id="titleCol"></select></label>
+    </div>
+    <table class="f"><thead><tr><th>Column</th><th>List</th><th>Preview</th></tr></thead><tbody id="fieldRows"></tbody></table>
+  </div>
+  <div class="dlg-f"><button class="primary" id="dlgClose">Done</button></div>
+</dialog>
+
+<script>
+const STATUS = { pending: 'Pending', approved: 'Approved', changes_requested: 'Changes requested', rejected: 'Rejected' };
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmt = d => new Date(d).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+const send = (path, method, body) => fetch('/api/' + path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
+
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+let dataset = null, settings = {}, reviews = {}, selectedId = null, visible = [];
+
+// ---- CSV parsing (RFC 4180: quotes, escaped quotes, embedded newlines) ----
+function parseCSV(text) {
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  const rows = []; let row = [], field = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else q = false; }
+      else field += c;
+    } else if (c === '"') q = true;
+    else if (c === ',') { row.push(field); field = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(field); field = ''; rows.push(row); row = [];
+    } else field += c;
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  return rows.filter(r => r.some(v => v !== ''));
+}
+
+function guessColumn(columns, patterns) {
+  for (const p of patterns) { const c = columns.find(c => p.test(c)); if (c) return c; }
+  return columns[0];
+}
+
+async function importFile(f) {
+  const parsed = parseCSV(await f.text());
+  if (parsed.length < 2) return alert('That file has no data rows.');
+  const columns = parsed[0].map((c, i) => c.trim() || `Column ${i + 1}`);
+  const rows = parsed.slice(1).map(r => Object.fromEntries(columns.map((c, i) => [c, r[i] ?? ''])));
+  await send('dataset', 'PUT', { fileName: f.name, columns, rows });
+  // Keep field choices if the same columns exist, otherwise guess sensible defaults.
+  const keep = settings.idCol && columns.includes(settings.idCol);
+  if (!keep) {
+    const idCol = guessColumn(columns, [/^id$/i, /\bid\b/i]);
+    const titleCol = guessColumn(columns.filter(c => c !== idCol), [/^title$/i, /title|name/i]);
+    const others = columns.filter(c => c !== idCol && c !== titleCol);
+    settings = { idCol, titleCol, listCols: [idCol, titleCol, ...others.slice(0, 2)], previewCols: others.slice(0, 8), listWidths: {}, previewHeights: {} };
+    await send('settings', 'PUT', settings);
+  }
+  await load();
+  if (!keep) openFields();
+}
+
+// ---- state ----
+async function load() {
+  ({ dataset, settings, reviews } = await fetch('/api/state').then(r => r.json()));
+  if (dataset && !dataset.columns.includes(settings.idCol)) settings = {};
+  if (settings.idCol) {
+    const ok = c => dataset.columns.includes(c);
+    settings.listCols = (settings.listCols || []).filter(ok);
+    settings.previewCols = (settings.previewCols || []).filter(ok);
+    settings.listWidths ||= {}; settings.previewHeights ||= {};
+  }
+  render();
+}
+const saveSettings = () => send('settings', 'PUT', settings);
+const rid = row => String(row[settings.idCol] ?? '');
+const statusOf = id => reviews[id]?.status || 'pending';
+const listCols = () => settings.listCols.length ? settings.listCols : [settings.idCol];
+const widthOf = c => settings.listWidths[c] || (c === settings.idCol ? 100 : 160);
+const colsCSS = () => listCols().map(c => widthOf(c) + 'px').join(' ') + ' 28px';
+
+function applyLayout() {
+  $('#app').style.setProperty('--leftw', (settings.leftWidth || 460) + 'px');
+  $('#right').style.setProperty('--lw', (settings.labelWidth || 170) + 'px');
+  $('#list').style.setProperty('--cols', colsCSS());
+}
+
+function render() {
+  const has = !!dataset;
+  $('#empty').hidden = has; $('#app').hidden = !has; $('#fieldsBtn').hidden = !has;
+  if (!has) { $('#info').textContent = ''; return; }
+  $('#info').textContent = `${dataset.fileName} · ${dataset.rows.length} items`;
+  if (!settings.idCol) return openFields();
+  const sf = $('#statusFilter'), cur = sf.value || 'all';
+  sf.innerHTML = [['all', 'All statuses'], ...Object.entries(STATUS)].map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+  sf.value = cur;
+  applyLayout(); renderList(); renderPreview();
+}
+
+function renderList() {
+  const q = $('#search').value.trim().toLowerCase(), sf = $('#statusFilter').value;
+  visible = dataset.rows.filter(r =>
+    (sf === 'all' || statusOf(rid(r)) === sf) &&
+    (!q || Object.values(r).some(v => String(v).toLowerCase().includes(q))));
+  if (settings.sortCol && dataset.columns.includes(settings.sortCol)) {
+    const dir = settings.sortDir === 'desc' ? -1 : 1, col = settings.sortCol;
+    visible.sort((a, b) => dir * collator.compare(a[col] ?? '', b[col] ?? ''));
+  }
+  if (!visible.some(r => rid(r) === selectedId)) selectedId = visible[0] ? rid(visible[0]) : null;
+  const cols = listCols();
+  const head = `<div class="lhead">${cols.map(c =>
+    `<div class="hc" draggable="true" data-drag="list" data-target="list" data-col="${esc(c)}" title="Click to sort">${esc(c)}${settings.sortCol === c ? (settings.sortDir === 'desc' ? ' ▼' : ' ▲') : ''}<span class="rh" data-col="${esc(c)}"></span></div>`).join('')}<div></div></div>`;
+  const body = visible.map(r => {
+    const id = rid(r);
+    return `<div class="row ${id === selectedId ? 'sel' : ''}" data-id="${esc(id)}">${cols.map(c =>
+      `<div class="cell ${c === settings.idCol ? 'id' : ''}" title="${esc(r[c])}">${esc(r[c])}</div>`).join('')}
+      <div class="cell dotc"><span class="dot ${statusOf(id)}" title="${STATUS[statusOf(id)]}"></span></div></div>`;
+  }).join('');
+  $('#list').innerHTML = head + (visible.length ? body : '<div class="empty">No matching items.</div>');
+}
+
+function renderPreview() {
+  const row = dataset.rows.find(r => rid(r) === selectedId);
+  if (!row) { $('#right').innerHTML = '<div class="empty">Select an item.</div>'; return; }
+  const id = rid(row), rv = reviews[id] || { status: 'pending', comments: [] };
+  $('#right').innerHTML = `
+    <div class="meta">${esc(id)}</div><h2>${esc(row[settings.titleCol])}</h2>
+    <div class="fields">${settings.previewCols.map(c => {
+      const h = settings.previewHeights[c];
+      return `<div class="fld" data-target="preview" data-col="${esc(c)}">
+        <span class="grip" draggable="true" data-drag="preview" data-col="${esc(c)}" title="Drag to reorder">⋮⋮</span>
+        <div class="lbl">${esc(c)}<span class="lh"></span></div>
+        <div class="val" data-col="${esc(c)}" ${h ? `style="height:${h}px"` : ''}>${esc(row[c]) || '<span class="meta">—</span>'}</div></div>`;
+    }).join('') || '<div class="meta">No preview fields chosen. Use Fields… to pick some.</div>'}</div>
+    <div class="review">
+      <div class="statuses">${Object.entries(STATUS).map(([k, v]) =>
+        `<button class="${k} ${rv.status === k ? 'on' : ''}" data-status="${k}">${v}</button>`).join('')}</div>
+      ${rv.comments.map(c => `<div class="comment"><b>${esc(c.author)}</b> <span class="meta">${fmt(c.created)}</span><br>${esc(c.text)}</div>`).join('')}
+      <form class="cform"><input name="author" placeholder="Your name" value="${esc(localStorage.author || '')}">
+        <input name="text" placeholder="Add a comment" required><button class="primary">Comment</button></form>
+    </div>`;
+}
+
+function select(id) {
+  selectedId = id;
+  document.querySelectorAll('.row').forEach(el => el.classList.toggle('sel', el.dataset.id === id));
+  document.querySelector('.row.sel')?.scrollIntoView({ block: 'nearest' });
+  renderPreview();
+}
+
+// ---- field chooser ----
+function openFields() {
+  const cols = dataset.columns, opt = v => cols.map(c => `<option ${c === v ? 'selected' : ''}>${esc(c)}</option>`).join('');
+  $('#idCol').innerHTML = opt(settings.idCol); $('#titleCol').innerHTML = opt(settings.titleCol);
+  $('#fieldRows').innerHTML = cols.map((c, i) => `<tr><td>${esc(c)}</td>
+    <td><input type="checkbox" data-k="listCols" data-c="${i}" ${settings.listCols.includes(c) ? 'checked' : ''}></td>
+    <td><input type="checkbox" data-k="previewCols" data-c="${i}" ${settings.previewCols.includes(c) ? 'checked' : ''}></td></tr>`).join('');
+  if (!$('#dlg').open) $('#dlg').showModal();
+}
+$('#idCol').onchange = $('#titleCol').onchange = () => {
+  settings.idCol = $('#idCol').value; settings.titleCol = $('#titleCol').value; saveSettings(); applyLayout(); renderList(); renderPreview();
+};
+$('#fieldRows').onchange = e => {
+  const k = e.target.dataset.k; if (!k) return;
+  const col = dataset.columns[e.target.dataset.c];
+  // newly ticked fields go to the end; drag to reorder afterwards
+  settings[k] = e.target.checked ? [...settings[k], col] : settings[k].filter(c => c !== col);
+  saveSettings(); applyLayout(); k === 'listCols' ? renderList() : renderPreview();
+};
+$('#dlgClose').onclick = () => $('#dlg').close();
+$('#fieldsBtn').onclick = openFields;
+
+// ---- drag to reorder (list headers, preview fields) ----
+let dragging = null;
+const clearOver = () => document.querySelectorAll('.over-before,.over-after').forEach(el => el.classList.remove('over-before', 'over-after'));
+document.addEventListener('dragstart', e => {
+  const el = e.target.closest?.('[data-drag]'); if (!el) return;
+  dragging = { kind: el.dataset.drag, col: el.dataset.col };
+  e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', el.dataset.col);
+  const shown = el.closest('.fld') || el;
+  e.dataTransfer.setDragImage(shown, 10, 10);
+  shown.classList.add('dragging');
+});
+document.addEventListener('dragend', () => { dragging = null; clearOver(); document.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging')); });
+const afterOf = (e, t) => { const r = t.getBoundingClientRect(); return dragging.kind === 'list' ? e.clientX > r.left + r.width / 2 : e.clientY > r.top + r.height / 2; };
+document.addEventListener('dragover', e => {
+  const t = dragging && e.target.closest?.('[data-target]');
+  if (!t || t.dataset.target !== dragging.kind) return;
+  e.preventDefault(); clearOver();
+  t.classList.add(afterOf(e, t) ? 'over-after' : 'over-before');
+});
+document.addEventListener('drop', e => {
+  const t = dragging && e.target.closest?.('[data-target]');
+  if (!t || t.dataset.target !== dragging.kind) return;
+  e.preventDefault();
+  const key = dragging.kind + 'Cols', arr = settings[key].filter(c => c !== dragging.col);
+  const at = arr.indexOf(t.dataset.col) + (afterOf(e, t) ? 1 : 0);
+  arr.splice(at, 0, dragging.col);
+  settings[key] = arr; saveSettings(); dragging = null; clearOver();
+  key === 'listCols' ? renderList() : renderPreview();
+});
+
+// ---- resizing: list columns, preview label column, left/right split, preview field height ----
+function startResize(e, handle, onMove) {
+  e.preventDefault(); e.stopPropagation();
+  handle.classList.add('drag');
+  const x0 = e.clientX;
+  const move = ev => onMove(ev.clientX - x0);
+  const up = () => {
+    document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
+    handle.classList.remove('drag'); saveSettings();
+  };
+  document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+}
+document.addEventListener('mousedown', e => {
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  if (e.target.classList.contains('rh')) {            // list column width
+    const c = e.target.dataset.col, w0 = e.target.parentElement.offsetWidth;
+    startResize(e, e.target, dx => { settings.listWidths[c] = clamp(w0 + dx, 40, 900); $('#list').style.setProperty('--cols', colsCSS()); });
+  } else if (e.target.classList.contains('lh')) {     // preview label width
+    const w0 = settings.labelWidth || 170;
+    startResize(e, e.target, dx => { settings.labelWidth = clamp(w0 + dx, 60, 500); $('#right').style.setProperty('--lw', settings.labelWidth + 'px'); });
+  } else if (e.target.id === 'split') {               // left/right panes
+    const w0 = $('#left').offsetWidth;
+    startResize(e, e.target, dx => { settings.leftWidth = clamp(w0 + dx, 200, innerWidth - 300); $('#app').style.setProperty('--leftw', settings.leftWidth + 'px'); });
+  }
+});
+// Native vertical resize on preview values: store any explicit heights when the mouse is released.
+document.addEventListener('mouseup', e => {
+  if (!e.target.closest?.('#right')) return;
+  let changed = false;
+  document.querySelectorAll('#right .val').forEach(v => {
+    const h = v.style.height ? parseInt(v.style.height) : 0;
+    if (h && h !== settings.previewHeights[v.dataset.col]) { settings.previewHeights[v.dataset.col] = h; changed = true; }
+  });
+  if (changed) saveSettings();
+});
+
+// ---- events ----
+$('#importBtn').onclick = () => $('#file').click();
+$('#file').onchange = e => { if (e.target.files[0]) importFile(e.target.files[0]); e.target.value = ''; };
+const drop = $('#drop');
+['dragover', 'dragenter'].forEach(t => document.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(t => document.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+document.addEventListener('drop', e => { if (e.dataTransfer.files[0]) importFile(e.dataTransfer.files[0]); });
+$('#search').oninput = $('#statusFilter').onchange = () => { renderList(); renderPreview(); };
+$('#list').onclick = e => {
+  const h = e.target.closest('.hc');
+  if (h && !e.target.classList.contains('rh')) {   // asc -> desc -> unsorted
+    const c = h.dataset.col;
+    if (settings.sortCol !== c) { settings.sortCol = c; settings.sortDir = 'asc'; }
+    else if (settings.sortDir === 'asc') settings.sortDir = 'desc';
+    else { delete settings.sortCol; delete settings.sortDir; }
+    saveSettings(); return renderList();
+  }
+  const r = e.target.closest('.row'); if (r) select(r.dataset.id);
+};
+$('#list').onkeydown = e => {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  e.preventDefault();
+  const i = visible.findIndex(r => rid(r) === selectedId);
+  const n = visible[Math.max(0, Math.min(visible.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))];
+  if (n) select(rid(n));
+};
+$('#right').onclick = async e => {
+  const s = e.target.dataset.status; if (!s || !selectedId) return;
+  reviews[selectedId] = await send(`reviews/${encodeURIComponent(selectedId)}/status`, 'PUT', { status: s });
+  renderList(); renderPreview();
+};
+$('#right').onsubmit = async e => {
+  e.preventDefault();
+  const d = Object.fromEntries(new FormData(e.target)); localStorage.author = d.author;
+  reviews[selectedId] = await send(`reviews/${encodeURIComponent(selectedId)}/comments`, 'POST', d);
+  renderPreview();
+};
+load();
+</script>
+</body>
+</html>

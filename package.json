@@ -1,0 +1,9 @@
+{
+  "name": "item-review",
+  "version": "1.0.0",
+  "description": "Simple item review tracker with statuses and comments",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "license": "UNLICENSED",
+  "private": true
+}

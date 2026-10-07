@@ -1,0 +1,55 @@
+﻿ID,Title,Owning Domain,Owner,Status,Risk,Due Date,Last Modified,Description,Notes
+ITM-1001,Retire legacy batch export,Identity,Taylor Reid,In Progress,Critical,2026-02-03,2026-09-02,"Retire legacy batch export.
+Scope covers the Identity domain, including dependencies on adjacent teams.
+Expected outcome: reduced risk and clearer ownership, with evidence attached for review.","Raised in weekly review, follow-up ""1"" agreed, see ticket REF-201, awaiting confirmation."
+ITM-1002,Upgrade TLS configuration,Data Platform,Priya Shah,Blocked,High,2026-03-05,2026-09-03,"Upgrade TLS configuration.
+Scope covers the Data Platform domain, including dependencies on adjacent teams.
+Expected outcome: reduced risk and clearer ownership, with evidence attached for review.","Raised in weekly review, follow-up ""2"" agreed, see ticket REF-202, awaiting confirmation."
+ITM-1003,Review access recertification,Networking,Chris Baker,Closed,Medium,2026-04-07,2026-09-04,"Review access recertification.
+Scope covers the Networking domain, including dependencies on adjacent teams.
+Expected outcome: reduced risk and clearer ownership, with evidence attached for review.","Raised in weekly review, follow-up ""3"" agreed, see ticket REF-203, awaiting confirmation."
+ITM-1004,Migrate reporting database,Customer Portal,Jo Nguyen,Open,Low,2026-05-09,2026-09-05,"Migrate reporting database.
+Scope covers the Customer Portal domain, including dependencies on adjacent teams.
+Expected outcome: reduced risk and clearer ownership, with evidence attached for review.","Raised in weekly review, follow-up ""4"" agreed, see ticket REF-204, awaiting confirmation."
+ITM-1005,Document failover procedure,Security,Sam Patel,In Progress,Critical,2026-06-11,2026-09-06,"Document failover procedure.
+Scope covers the Security domain, including dependencies on adjacent teams.
+Expected outcome: reduced risk and clearer ownership, with evidence attached for review.","Raised in weekly review, follow-up ""5"" agreed, see ticket REF-205, awaiting confirmation."
+ITM-1006,Rotate service credentials,Payments,Alex Morgan,Blocked,High,2026-07-13,2026-09-07,"Rotate service credentials.
+Scope covers the Payments domain, including dependencies on adjacent teams.
+Expected outcome: reduced risk and clearer ownership, with evidence attached for review.","Raised in weekly review, follow-up ""6"" agreed, see ticket REF-206, awaiting confirmation."
+ITM-1007,Consolidate logging pipeline,Identity,Taylor Reid,Closed,Medium,2026-08-15,2026-09-08,"Consolidate logging pipeline.
+Scope covers the Identity domain, including dependencies on adjacent teams.
+Expected outcome: reduced risk and clearer ownership, with evidence attached for review.","Raised in weekly review, follow-up ""7"" agreed, see ticket REF-207, awaiting confirmation."
+ITM-1008,Update vendor risk assessment,Data Platform,Priya Shah,Open,Low,2026-09-17,2026-09-09,"Update vendor risk assessment.
+Scope covers the Data Platform domain, including dependencies on adjacent teams.
+Expected outcome: reduced risk and clearer ownership, with evidence attached for review.","Raised in weekly review, follow-up ""8"" agreed, see ticket REF-208, awaiting confirmation."
+ITM-1009,Patch edge load balancers,Networking,Chris Baker,In Progress,Critical,2026-01-19,2026-09-10,"Patch edge load balancers.
+Scope covers the Networking domain, including dependencies on adjacent teams.
+Expected outcome: reduced risk and clearer ownership, with evidence attached for review.","Raised in weekly review, follow-up ""9"" agreed, see ticket REF-209, awaiting confirmation."
+ITM-1010,Define data retention rules,Customer Portal,Jo Nguyen,Blocked,High,2026-02-21,2026-09-11,"Define data retention rules.
+Scope covers the Customer Portal domain, including dependencies on adjacent teams.
+Expected outcome: reduced risk and clearer ownership, with evidence attached for review.","Raised in weekly review, follow-up ""10"" agreed, see ticket REF-210, awaiting confirmation."
+ITM-1011,Automate onboarding checks,Security,Sam Patel,Closed,Medium,2026-03-23,2026-09-12,"Automate onboarding checks.
+Scope covers the Security domain, including dependencies on adjacent teams.
+Expected outcome: reduced risk and clearer ownership, with evidence attached for review.","Raised in weekly review, follow-up ""11"" agreed, see ticket REF-211, awaiting confirmation."
+ITM-1012,Review API rate limits,Payments,Alex Morgan,Open,Low,2026-04-25,2026-09-13,"Review API rate limits.
+Scope covers the Payments domain, including dependencies on adjacent teams.
+Expected outcome: reduced risk and clearer ownership, with evidence attached for review.","Raised in weekly review, follow-up ""12"" agreed, see ticket REF-212, awaiting confirmation."
+ITM-1013,Decommission old VPN,Identity,Taylor Reid,In Progress,Critical,2026-05-27,2026-09-14,"Decommission old VPN.
+Scope covers the Identity domain, including dependencies on adjacent teams.
+Expected outcome: reduced risk and clearer ownership, with evidence attached for review.","Raised in weekly review, follow-up ""13"" agreed, see ticket REF-213, awaiting confirmation."
+ITM-1014,Validate backup restores,Data Platform,Priya Shah,Blocked,High,2026-06-02,2026-09-15,"Validate backup restores.
+Scope covers the Data Platform domain, including dependencies on adjacent teams.
+Expected outcome: reduced risk and clearer ownership, with evidence attached for review.","Raised in weekly review, follow-up ""14"" agreed, see ticket REF-214, awaiting confirmation."
+ITM-1015,Refresh disaster recovery plan,Networking,Chris Baker,Closed,Medium,2026-07-04,2026-09-16,"Refresh disaster recovery plan.
+Scope covers the Networking domain, including dependencies on adjacent teams.
+Expected outcome: reduced risk and clearer ownership, with evidence attached for review.","Raised in weekly review, follow-up ""15"" agreed, see ticket REF-215, awaiting confirmation."
+ITM-1016,Standardise alert thresholds,Customer Portal,Jo Nguyen,Open,Low,2026-08-06,2026-09-17,"Standardise alert thresholds.
+Scope covers the Customer Portal domain, including dependencies on adjacent teams.
+Expected outcome: reduced risk and clearer ownership, with evidence attached for review.","Raised in weekly review, follow-up ""16"" agreed, see ticket REF-216, awaiting confirmation."
+ITM-1017,Audit third-party libraries,Security,Sam Patel,In Progress,Critical,2026-09-08,2026-09-18,"Audit third-party libraries.
+Scope covers the Security domain, including dependencies on adjacent teams.
+Expected outcome: reduced risk and clearer ownership, with evidence attached for review.","Raised in weekly review, follow-up ""17"" agreed, see ticket REF-217, awaiting confirmation."
+ITM-1018,Clarify ownership of shared service,Payments,Alex Morgan,Blocked,High,2026-01-10,2026-09-19,"Clarify ownership of shared service.
+Scope covers the Payments domain, including dependencies on adjacent teams.
+Expected outcome: reduced risk and clearer ownership, with evidence attached for review.","Raised in weekly review, follow-up ""18"" agreed, see ticket REF-218, awaiting confirmation."
