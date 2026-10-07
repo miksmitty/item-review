@@ -14,6 +14,7 @@
       --pending: #fbbf24; --approved: #4ade80; --changes_requested: #fb923c; --rejected: #f87171; }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body { height: 100%; }
   body { margin: 0; font: 14px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--text); display: flex; flex-direction: column; }
   button, input, textarea, select { font: inherit; color: inherit; }
@@ -89,7 +90,7 @@
   <button id="importBtn">Import CSV</button>
   <input type="file" id="file" accept=".csv,text/csv" hidden>
 </header>
-<div id="empty" hidden><div id="drop">Drop a CSV exported from SharePoint here, or click <b>Import CSV</b>.</div></div>
+<div id="empty" hidden><div id="drop">Drop a CSV exported from SharePoint here, or click <b>Import CSV</b>.<br><br><button id="demoBtn">Load demo data</button></div></div>
 <div id="app" hidden>
   <section id="left">
     <div id="tools">
@@ -345,6 +346,10 @@ document.addEventListener('mouseup', e => {
 });
 
 // ---- events ----
+$('#demoBtn').onclick = async () => {
+  const text = await fetch('/sample-items.csv').then(r => r.text());
+  importFile(new File([text], 'sample-items.csv'));
+};
 $('#importBtn').onclick = () => $('#file').click();
 $('#file').onchange = e => { if (e.target.files[0]) importFile(e.target.files[0]); e.target.value = ''; };
 const drop = $('#drop');
