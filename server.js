@@ -6,7 +6,6 @@ const crypto = require('crypto');
 const PORT = process.env.PORT || 3120;
 const DATA_DIR = path.join(__dirname, 'data');
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const STATUSES = ['pending', 'approved', 'changes_requested', 'rejected'];
 const MIME = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.csv': 'text/csv' };
 
 const file = name => path.join(DATA_DIR, name + '.json');
@@ -30,7 +29,7 @@ function readBody(req) {
   });
 }
 
-// State: dataset {fileName, columns, rows, imported}, settings, reviews {[id]: {status, comments}}
+// State: dataset {fileName, columns, rows, imported}, settings, reviews {[id]: {comments}}
 async function api(req, res, url) {
   // The app may sit behind a proxy under a path prefix (e.g. /proxy/3001/), so find /api/ anywhere.
   const parts = url.pathname.slice(url.pathname.indexOf('/api/')).split('/').filter(Boolean);
@@ -63,22 +62,12 @@ async function api(req, res, url) {
     return send(res, 200, { ok: true });
   }
 
-  // /api/reviews/:id/status, /api/reviews/:id/comments (id is URL-encoded)
-  if (parts[1] === 'reviews' && parts[2] && method === 'POST' && parts[3] === 'status') {
-    if (!STATUSES.includes(body.status)) return send(res, 400, { error: 'Bad status' });
-    const reviews = load('reviews', {});
-    const id = decodeURIComponent(parts[2]);
-    reviews[id] = reviews[id] || { status: 'pending', comments: [] };
-    reviews[id].status = body.status;
-    save('reviews', reviews);
-    return send(res, 200, reviews[id]);
-  }
-
+  // /api/reviews/:id/comments (id is URL-encoded)
   if (parts[1] === 'reviews' && parts[2] && method === 'POST' && parts[3] === 'comments') {
     if (!body.text || !String(body.text).trim()) return send(res, 400, { error: 'Text required' });
     const reviews = load('reviews', {});
     const id = decodeURIComponent(parts[2]);
-    reviews[id] = reviews[id] || { status: 'pending', comments: [] };
+    reviews[id] = reviews[id] || { comments: [] };
     reviews[id].comments.push({
       id: crypto.randomUUID(),
       author: String(body.author || 'Reviewer').trim() || 'Reviewer',

@@ -7,11 +7,9 @@
 <style>
   :root {
     --bg: #f5f6f8; --card: #fff; --text: #1d2330; --muted: #6b7280; --border: #e2e5ea; --accent: #2563eb; --sel: #e8effd;
-    --pending: #b45309; --approved: #15803d; --changes_requested: #c2410c; --rejected: #b91c1c;
   }
   @media (prefers-color-scheme: dark) {
-    :root { --bg: #14171d; --card: #1d222b; --text: #e8eaee; --muted: #98a1b0; --border: #2e3541; --accent: #60a5fa; --sel: #1f2a40;
-      --pending: #fbbf24; --approved: #4ade80; --changes_requested: #fb923c; --rejected: #f87171; }
+    :root { --bg: #14171d; --card: #1d222b; --text: #e8eaee; --muted: #98a1b0; --border: #2e3541; --accent: #60a5fa; --sel: #1f2a40; }
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
@@ -58,10 +56,6 @@
   .row.sel { background: var(--sel); box-shadow: inset 3px 0 0 var(--accent); }
   .cell { padding: 7px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cell.id { font-weight: 600; color: var(--accent); }
-  .cell.dotc { display: flex; align-items: center; justify-content: center; padding: 0; }
-  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--border); }
-  .dot.pending { background: transparent; border: 1px solid var(--muted); }
-  .dot.approved { background: var(--approved); } .dot.changes_requested { background: var(--changes_requested); } .dot.rejected { background: var(--rejected); }
   #right { overflow-y: auto; padding: 20px 28px 40px; min-height: 0; min-width: 0; --lw: 170px; }
   #right h2 { margin: 0 0 4px; font-size: 20px; }
   .fields { margin: 16px 0; }
@@ -71,12 +65,8 @@
   .lh { right: -7px; }
   .val { white-space: pre-wrap; word-break: break-word; resize: vertical; overflow: auto; min-height: 1.4em; padding-right: 4px; }
   .review { border-top: 1px solid var(--border); margin-top: 20px; padding-top: 14px; }
-  .statuses { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
-  .statuses button.on { font-weight: 600; border-color: currentColor; }
   .comment { margin: 8px 0; }
   .cform { display: grid; grid-template-columns: 130px 1fr auto; gap: 6px; margin-top: 8px; }
-  .pending { color: var(--pending); } .approved { color: var(--approved); }
-  .changes_requested { color: var(--changes_requested); } .rejected { color: var(--rejected); }
   .empty { color: var(--muted); text-align: center; padding: 60px 20px; }
   /* fields dialog */
   dialog { border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--text); padding: 0; width: min(640px, 94vw); }
@@ -107,7 +97,6 @@
   <section id="left">
     <div id="tools">
       <input id="search" type="search" placeholder="Search all fields…">
-      <select id="statusFilter"></select>
       <button id="clearFilters" hidden title="Clear column filters"></button>
     </div>
     <div id="list" tabindex="0"></div>
@@ -129,7 +118,6 @@
 </dialog>
 
 <script>
-const STATUS = { pending: 'Pending', approved: 'Approved', changes_requested: 'Changes requested', rejected: 'Rejected' };
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = d => new Date(d).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
@@ -242,11 +230,9 @@ async function load() {
 }
 const saveSettings = () => send('settings', 'PUT', settings);
 const rid = row => String(row[settings.idCol] ?? '');
-const statusOf = id => reviews[id]?.status || 'pending';
 const listCols = () => settings.listCols.length ? settings.listCols : [settings.idCol];
 const widthOf = c => settings.listWidths[c] || (c === settings.idCol ? 100 : 160);
-const hasStatus = () => dataset.columns.some(c => /status/i.test(c));   // review status only shows when the CSV has a status column
-const colsCSS = () => listCols().map(c => widthOf(c) + 'px').join(' ') + (hasStatus() ? ' 28px' : '');
+const colsCSS = () => listCols().map(c => widthOf(c) + 'px').join(' ');
 
 function applyLayout() {
   $('#app').style.setProperty('--leftw', (settings.leftWidth || 460) + 'px');
@@ -260,16 +246,12 @@ function render() {
   if (!has) { $('#info').textContent = ''; return; }
   $('#info').textContent = `${dataset.fileName} · ${dataset.rows.length} items`;
   if (!settings.idCol) return openFields();
-  const sf = $('#statusFilter'), cur = sf.value || 'all';
-  sf.innerHTML = [['all', 'All statuses'], ...Object.entries(STATUS)].map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
-  sf.value = cur; sf.hidden = !hasStatus();
   applyLayout(); renderList(); renderPreview();
 }
 
 function renderList() {
-  const q = $('#search').value.trim().toLowerCase(), sf = hasStatus() ? $('#statusFilter').value : 'all';
+  const q = $('#search').value.trim().toLowerCase();
   visible = dataset.rows.filter(r =>
-    (sf === 'all' || statusOf(rid(r)) === sf) &&
     (!q || Object.values(r).some(v => String(v).toLowerCase().includes(q))) && passes(r));
   const nActive = Object.keys(colFilters).filter(c => dataset.columns.includes(c)).length;
   $('#clearFilters').hidden = !nActive; $('#clearFilters').textContent = `Clear filters (${nActive})`;
@@ -280,12 +262,11 @@ function renderList() {
   if (!visible.some(r => rid(r) === selectedId)) selectedId = visible[0] ? rid(visible[0]) : null;
   const cols = listCols();
   const head = `<div class="lhead">${cols.map(c =>
-    `<div class="hc" draggable="true" data-drag="list" data-target="list" data-col="${esc(c)}" title="Click to sort">${esc(c)}${settings.sortCol === c ? (settings.sortDir === 'desc' ? ' ▼' : ' ▲') : ''}<button class="fb ${colFilters[c] ? 'on' : ''}" data-fcol="${esc(c)}" title="Filter and sort">▾</button><span class="rh" data-col="${esc(c)}"></span></div>`).join('')}${hasStatus() ? '<div></div>' : ''}</div>`;
+    `<div class="hc" draggable="true" data-drag="list" data-target="list" data-col="${esc(c)}" title="Click to sort">${esc(c)}${settings.sortCol === c ? (settings.sortDir === 'desc' ? ' ▼' : ' ▲') : ''}<button class="fb ${colFilters[c] ? 'on' : ''}" data-fcol="${esc(c)}" title="Filter and sort">▾</button><span class="rh" data-col="${esc(c)}"></span></div>`).join('')}</div>`;
   const body = visible.map(r => {
     const id = rid(r);
     return `<div class="row ${id === selectedId ? 'sel' : ''}" data-id="${esc(id)}">${cols.map(c =>
-      `<div class="cell ${c === settings.idCol ? 'id' : ''}" title="${esc(r[c])}">${esc(r[c])}</div>`).join('')}
-      ${hasStatus() ? `<div class="cell dotc"><span class="dot ${statusOf(id)}" title="${STATUS[statusOf(id)]}"></span></div>` : ''}</div>`;
+      `<div class="cell ${c === settings.idCol ? 'id' : ''}" title="${esc(r[c])}">${esc(r[c])}</div>`).join('')}</div>`;
   }).join('');
   $('#list').innerHTML = head + (visible.length ? body : '<div class="empty">No matching items.</div>');
 }
@@ -293,7 +274,7 @@ function renderList() {
 function renderPreview() {
   const row = dataset.rows.find(r => rid(r) === selectedId);
   if (!row) { $('#right').innerHTML = '<div class="empty">Select an item.</div>'; return; }
-  const id = rid(row), rv = reviews[id] || { status: 'pending', comments: [] };
+  const id = rid(row), rv = reviews[id] || { comments: [] };
   $('#right').innerHTML = `
     <div class="meta">${esc(id)}</div><h2>${esc(row[settings.titleCol])}</h2>
     <div class="fields">${settings.previewCols.map(c => {
@@ -304,8 +285,6 @@ function renderPreview() {
         <div class="val" data-col="${esc(c)}" ${h ? `style="height:${h}px"` : ''}>${esc(row[c]) || '<span class="meta">—</span>'}</div></div>`;
     }).join('') || '<div class="meta">No preview fields chosen. Use Fields… to pick some.</div>'}</div>
     <div class="review">
-      ${hasStatus() ? `<div class="statuses">${Object.entries(STATUS).map(([k, v]) =>
-        `<button class="${k} ${rv.status === k ? 'on' : ''}" data-status="${k}">${v}</button>`).join('')}</div>` : ''}
       ${rv.comments.map(c => `<div class="comment"><b>${esc(c.author)}</b> <span class="meta">${fmt(c.created)}</span><br>${esc(c.text)}</div>`).join('')}
       <form class="cform"><input name="author" placeholder="Your name" value="${esc(localStorage.author || '')}">
         <input name="text" placeholder="Add a comment" required><button class="primary">Comment</button></form>
@@ -467,7 +446,7 @@ const drop = $('#drop');
 ['dragover', 'dragenter'].forEach(t => document.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
 ['dragleave', 'drop'].forEach(t => document.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
 document.addEventListener('drop', e => { if (e.dataTransfer.files[0]) importFile(e.dataTransfer.files[0]); });
-$('#search').oninput = $('#statusFilter').onchange = () => { renderList(); renderPreview(); };
+$('#search').oninput = () => { renderList(); renderPreview(); };
 $('#list').onclick = e => {
   const fb = e.target.closest('.fb');
   if (fb) return openFilter(fb);
@@ -487,11 +466,6 @@ $('#list').onkeydown = e => {
   const i = visible.findIndex(r => rid(r) === selectedId);
   const n = visible[Math.max(0, Math.min(visible.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))];
   if (n) select(rid(n));
-};
-$('#right').onclick = async e => {
-  const s = e.target.dataset.status; if (!s || !selectedId) return;
-  reviews[selectedId] = await send(`reviews/${encodeURIComponent(selectedId)}/status`, 'PUT', { status: s });
-  renderList(); renderPreview();
 };
 $('#right').onsubmit = async e => {
   e.preventDefault();
