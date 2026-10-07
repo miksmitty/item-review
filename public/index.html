@@ -34,6 +34,18 @@
   .lhead, .row { display: grid; grid-template-columns: var(--cols); width: max-content; min-width: 100%; }
   .lhead { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--border); }
   .hc { position: relative; padding: 6px 10px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: grab; user-select: none; border-right: 1px solid var(--border); }
+  .hc { padding-right: 30px; }
+  .fb { position: absolute; right: 9px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; border: 0; background: transparent; color: var(--muted); padding: 0; font-size: 11px; line-height: 20px; border-radius: 4px; display: none; }
+  .hc:hover .fb, .fb.on { display: block; }
+  .fb:hover { background: var(--border); }
+  .fb.on { color: var(--accent); font-weight: 700; background: var(--sel); }
+  #fpop { position: fixed; z-index: 50; width: 250px; background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.35); padding: 8px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+  #fpop .mi { padding: 5px 8px; border-radius: 5px; cursor: pointer; }
+  #fpop .mi:hover { background: var(--sel); }
+  #fpop .vals { max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; padding: 4px; }
+  #fpop label { display: flex; gap: 7px; align-items: center; padding: 2px 4px; cursor: pointer; }
+  #fpop label .n { margin-left: auto; color: var(--muted); font-size: 11px; }
+  #fpop .btns { display: flex; justify-content: flex-end; gap: 6px; }
   .hc.over-before, .fld.over-before { box-shadow: inset 3px 0 0 var(--accent); }
   .hc.over-after { box-shadow: inset -3px 0 0 var(--accent); }
   .fld.over-before { box-shadow: inset 0 3px 0 var(--accent); }
@@ -96,6 +108,7 @@
     <div id="tools">
       <input id="search" type="search" placeholder="Search all fields…">
       <select id="statusFilter"></select>
+      <button id="clearFilters" hidden title="Clear column filters"></button>
     </div>
     <div id="list" tabindex="0"></div>
   </section>
@@ -128,6 +141,10 @@ async function send(path, method, body) {
 }
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+// Excel-style column filters: column -> Set of allowed values (session only)
+let colFilters = {};
+const cellVal = (r, c) => String(r[c] ?? '');
+const passes = (r, skip) => Object.entries(colFilters).every(([c, set]) => c === skip || !dataset.columns.includes(c) || set.has(cellVal(r, c)));
 let dataset = null, settings = {}, reviews = {}, selectedId = null, visible = [];
 
 // ---- CSV parsing (RFC 4180: quotes, escaped quotes, embedded newlines) ----
@@ -194,6 +211,7 @@ async function doImport(f) {
     settings = { idCol, titleCol, listCols: [idCol, titleCol, ...others.slice(0, 2)], previewCols: others.slice(0, 8), listWidths: {}, previewHeights: {} };
     await send('settings', 'PUT', settings);
   }
+  colFilters = {};
   await load();
   if (!keep) openFields();
 }
@@ -227,7 +245,8 @@ const rid = row => String(row[settings.idCol] ?? '');
 const statusOf = id => reviews[id]?.status || 'pending';
 const listCols = () => settings.listCols.length ? settings.listCols : [settings.idCol];
 const widthOf = c => settings.listWidths[c] || (c === settings.idCol ? 100 : 160);
-const colsCSS = () => listCols().map(c => widthOf(c) + 'px').join(' ') + ' 28px';
+const hasStatus = () => dataset.columns.some(c => /status/i.test(c));   // review status only shows when the CSV has a status column
+const colsCSS = () => listCols().map(c => widthOf(c) + 'px').join(' ') + (hasStatus() ? ' 28px' : '');
 
 function applyLayout() {
   $('#app').style.setProperty('--leftw', (settings.leftWidth || 460) + 'px');
@@ -243,15 +262,17 @@ function render() {
   if (!settings.idCol) return openFields();
   const sf = $('#statusFilter'), cur = sf.value || 'all';
   sf.innerHTML = [['all', 'All statuses'], ...Object.entries(STATUS)].map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
-  sf.value = cur;
+  sf.value = cur; sf.hidden = !hasStatus();
   applyLayout(); renderList(); renderPreview();
 }
 
 function renderList() {
-  const q = $('#search').value.trim().toLowerCase(), sf = $('#statusFilter').value;
+  const q = $('#search').value.trim().toLowerCase(), sf = hasStatus() ? $('#statusFilter').value : 'all';
   visible = dataset.rows.filter(r =>
     (sf === 'all' || statusOf(rid(r)) === sf) &&
-    (!q || Object.values(r).some(v => String(v).toLowerCase().includes(q))));
+    (!q || Object.values(r).some(v => String(v).toLowerCase().includes(q))) && passes(r));
+  const nActive = Object.keys(colFilters).filter(c => dataset.columns.includes(c)).length;
+  $('#clearFilters').hidden = !nActive; $('#clearFilters').textContent = `Clear filters (${nActive})`;
   if (settings.sortCol && dataset.columns.includes(settings.sortCol)) {
     const dir = settings.sortDir === 'desc' ? -1 : 1, col = settings.sortCol;
     visible.sort((a, b) => dir * collator.compare(a[col] ?? '', b[col] ?? ''));
@@ -259,12 +280,12 @@ function renderList() {
   if (!visible.some(r => rid(r) === selectedId)) selectedId = visible[0] ? rid(visible[0]) : null;
   const cols = listCols();
   const head = `<div class="lhead">${cols.map(c =>
-    `<div class="hc" draggable="true" data-drag="list" data-target="list" data-col="${esc(c)}" title="Click to sort">${esc(c)}${settings.sortCol === c ? (settings.sortDir === 'desc' ? ' ▼' : ' ▲') : ''}<span class="rh" data-col="${esc(c)}"></span></div>`).join('')}<div></div></div>`;
+    `<div class="hc" draggable="true" data-drag="list" data-target="list" data-col="${esc(c)}" title="Click to sort">${esc(c)}${settings.sortCol === c ? (settings.sortDir === 'desc' ? ' ▼' : ' ▲') : ''}<button class="fb ${colFilters[c] ? 'on' : ''}" data-fcol="${esc(c)}" title="Filter and sort">▾</button><span class="rh" data-col="${esc(c)}"></span></div>`).join('')}${hasStatus() ? '<div></div>' : ''}</div>`;
   const body = visible.map(r => {
     const id = rid(r);
     return `<div class="row ${id === selectedId ? 'sel' : ''}" data-id="${esc(id)}">${cols.map(c =>
       `<div class="cell ${c === settings.idCol ? 'id' : ''}" title="${esc(r[c])}">${esc(r[c])}</div>`).join('')}
-      <div class="cell dotc"><span class="dot ${statusOf(id)}" title="${STATUS[statusOf(id)]}"></span></div></div>`;
+      ${hasStatus() ? `<div class="cell dotc"><span class="dot ${statusOf(id)}" title="${STATUS[statusOf(id)]}"></span></div>` : ''}</div>`;
   }).join('');
   $('#list').innerHTML = head + (visible.length ? body : '<div class="empty">No matching items.</div>');
 }
@@ -283,8 +304,8 @@ function renderPreview() {
         <div class="val" data-col="${esc(c)}" ${h ? `style="height:${h}px"` : ''}>${esc(row[c]) || '<span class="meta">—</span>'}</div></div>`;
     }).join('') || '<div class="meta">No preview fields chosen. Use Fields… to pick some.</div>'}</div>
     <div class="review">
-      <div class="statuses">${Object.entries(STATUS).map(([k, v]) =>
-        `<button class="${k} ${rv.status === k ? 'on' : ''}" data-status="${k}">${v}</button>`).join('')}</div>
+      ${hasStatus() ? `<div class="statuses">${Object.entries(STATUS).map(([k, v]) =>
+        `<button class="${k} ${rv.status === k ? 'on' : ''}" data-status="${k}">${v}</button>`).join('')}</div>` : ''}
       ${rv.comments.map(c => `<div class="comment"><b>${esc(c.author)}</b> <span class="meta">${fmt(c.created)}</span><br>${esc(c.text)}</div>`).join('')}
       <form class="cform"><input name="author" placeholder="Your name" value="${esc(localStorage.author || '')}">
         <input name="text" placeholder="Add a comment" required><button class="primary">Comment</button></form>
@@ -297,6 +318,55 @@ function select(id) {
   document.querySelector('.row.sel')?.scrollIntoView({ block: 'nearest' });
   renderPreview();
 }
+
+// ---- Excel-style filter popup ----
+function closeFilter() { document.getElementById('fpop')?.remove(); }
+function openFilter(btn) {
+  const had = document.getElementById('fpop')?.dataset.col === btn.dataset.fcol;
+  closeFilter(); if (had) return;
+  const c = btn.dataset.fcol, counts = new Map();
+  for (const r of dataset.rows) if (passes(r, c)) counts.set(cellVal(r, c), (counts.get(cellVal(r, c)) || 0) + 1);
+  const vals = [...counts.keys()].sort(collator.compare);
+  const chosen = colFilters[c] || new Set(vals);
+  const pop = document.createElement('div');
+  pop.id = 'fpop'; pop.dataset.col = c;
+  pop.innerHTML = `<div class="mi" data-act="asc">Sort A → Z</div><div class="mi" data-act="desc">Sort Z → A</div>
+    <div class="mi" data-act="clear" ${colFilters[c] ? '' : 'style="opacity:.45"'}>Clear filter from “${esc(c)}”</div>
+    <input class="q" placeholder="Search values…">
+    <div class="vals"><label><input type="checkbox" class="all"> <b>(Select all)</b></label>${vals.map((v, i) =>
+      `<label data-t="${esc(v.toLowerCase())}"><input type="checkbox" class="v" data-i="${i}" ${chosen.has(v) ? 'checked' : ''}> ${v ? esc(v) : '(Blanks)'}<span class="n">${counts.get(v)}</span></label>`).join('')}</div>
+    <div class="btns"><button data-act="cancel">Cancel</button><button class="primary" data-act="ok">OK</button></div>`;
+  document.body.appendChild(pop);
+  const r = (btn.closest('.hc') || btn).getBoundingClientRect();
+  pop.style.left = Math.max(4, Math.min(r.left, innerWidth - 258)) + 'px';
+  pop.style.top = Math.min(r.bottom + 4, innerHeight - pop.offsetHeight - 4) + 'px';
+  const boxes = () => [...pop.querySelectorAll('.v')].filter(b => !b.closest('label').hidden);
+  const syncAll = () => { pop.querySelector('.all').checked = boxes().length > 0 && boxes().every(b => b.checked); };
+  syncAll();
+  pop.querySelector('.q').oninput = e => {
+    const q = e.target.value.toLowerCase();
+    pop.querySelectorAll('.vals label[data-t]').forEach(l => l.hidden = !!q && !l.dataset.t.includes(q));
+    syncAll();
+  };
+  pop.onchange = e => {
+    if (e.target.classList.contains('all')) boxes().forEach(b => b.checked = e.target.checked);
+    syncAll();
+  };
+  pop.onclick = e => {
+    const act = e.target.closest('[data-act]')?.dataset.act; if (!act) return;
+    if (act === 'asc' || act === 'desc') { settings.sortCol = c; settings.sortDir = act; saveSettings(); }
+    else if (act === 'clear') delete colFilters[c];
+    else if (act === 'ok') {
+      const picked = [...pop.querySelectorAll('.v')].filter(b => b.checked).map(b => vals[b.dataset.i]);
+      if (picked.length === vals.length) delete colFilters[c]; else colFilters[c] = new Set(picked);
+    }
+    closeFilter(); renderList(); renderPreview();
+  };
+  pop.querySelector('.q').focus();
+}
+document.addEventListener('mousedown', e => { if (!e.target.closest?.('#fpop, .fb')) closeFilter(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeFilter(); });
+$('#clearFilters').onclick = () => { colFilters = {}; renderList(); renderPreview(); };
 
 // ---- field chooser ----
 function openFields() {
@@ -399,6 +469,8 @@ const drop = $('#drop');
 document.addEventListener('drop', e => { if (e.dataTransfer.files[0]) importFile(e.dataTransfer.files[0]); });
 $('#search').oninput = $('#statusFilter').onchange = () => { renderList(); renderPreview(); };
 $('#list').onclick = e => {
+  const fb = e.target.closest('.fb');
+  if (fb) return openFilter(fb);
   const h = e.target.closest('.hc');
   if (h && !e.target.classList.contains('rh')) {   // asc -> desc -> unsorted
     const c = h.dataset.col;
