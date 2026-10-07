@@ -78,6 +78,18 @@ async function api(req, res, url) {
     return send(res, 201, reviews[id]);
   }
 
+  // Edit one field of one item: { id, field, value }; the ID column itself cannot be edited.
+  if (parts[1] === 'items' && parts[2] === 'update' && method === 'POST') {
+    const dataset = load('dataset', null), { idCol } = load('settings', {});
+    if (!dataset || !idCol) return send(res, 400, { error: 'No data loaded' });
+    if (!dataset.columns.includes(body.field) || body.field === idCol) return send(res, 400, { error: 'That field cannot be edited' });
+    const row = dataset.rows.find(r => String(r[idCol] ?? '') === String(body.id));
+    if (!row) return send(res, 404, { error: 'Item not found' });
+    row[body.field] = String(body.value ?? '');
+    save('dataset', dataset);
+    return send(res, 200, { ok: true });
+  }
+
   send(res, 404, { error: 'Not found' });
 }
 

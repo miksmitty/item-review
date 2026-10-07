@@ -66,6 +66,14 @@
   .lbl { position: relative; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .03em; padding-top: 2px; }
   .lh { right: -7px; }
   .val { white-space: pre-wrap; word-break: break-word; resize: vertical; overflow: auto; min-height: 1.4em; padding-right: 4px; }
+  .edit[contenteditable] { border-radius: 4px; outline: none; cursor: text; }
+  .edit[contenteditable]:hover { background: var(--bg); }
+  .edit[contenteditable]:focus { background: var(--card); box-shadow: 0 0 0 2px var(--accent); }
+  .val.rich { white-space: normal; }
+  .val.rich p, .val.rich div { margin: 0 0 .5em; }
+  .val.rich ul, .val.rich ol { margin: .2em 0; padding-left: 1.4em; }
+  .val a { color: var(--accent); }
+  .val:empty::before { content: '—'; color: var(--muted); }
   .review { border-top: 1px solid var(--border); margin-top: 20px; padding-top: 14px; }
   .comment { margin: 8px 0; }
   .cform { display: grid; grid-template-columns: 130px 1fr auto; gap: 6px; margin-top: 8px; }
@@ -91,6 +99,7 @@
   <h1>Item Review</h1>
   <span class="meta" id="info"></span>
   <button id="fieldsBtn" hidden>Fields…</button>
+  <button id="exportBtn" hidden title="Download the data, including your edits, as CSV">Export CSV</button>
   <button id="importBtn">Import CSV</button>
   <input type="file" id="file" accept=".csv,text/csv" hidden>
 </header>
@@ -132,9 +141,58 @@ async function send(path, method, body) {
 }
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+// ---- SharePoint rich text: cells may contain HTML. Show it safely, search/sort/filter on plain text. ----
+const HTML_RE = /<\/?[a-z][a-z0-9]*(\s[^>]*)?>/i;
+const isRich = v => HTML_RE.test(String(v ?? ''));
+const ALLOWED = new Set(['P', 'DIV', 'BR', 'B', 'STRONG', 'I', 'EM', 'U', 'S', 'STRIKE', 'SUB', 'SUP', 'UL', 'OL', 'LI', 'A', 'SPAN', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'CODE', 'PRE', 'HR', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TD', 'TH']);
+const DROP = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'TEMPLATE', 'HEAD', 'TITLE']);
+function sanitizeHTML(html) {   // allow-list rebuild: only known tags, no attributes except safe links
+  const doc = new DOMParser().parseFromString(String(html ?? ''), 'text/html');   // inert: nothing runs or loads
+  const out = document.createElement('div');
+  (function walk(src, dst) {
+    for (const n of src.childNodes) {
+      if (n.nodeType === 3) dst.appendChild(document.createTextNode(n.textContent));
+      else if (n.nodeType === 1 && !DROP.has(n.tagName)) {
+        if (!ALLOWED.has(n.tagName)) { walk(n, dst); continue; }
+        const e = document.createElement(n.tagName.toLowerCase());
+        if (n.tagName === 'A') {
+          const href = n.getAttribute('href') || '';
+          if (/^(https?:|mailto:)/i.test(href)) { e.href = href; e.target = '_blank'; e.rel = 'noopener noreferrer'; }
+        }
+        dst.appendChild(e); walk(n, e);
+      }
+    }
+  })(doc.body, out);
+  return out.innerHTML;
+}
+const BLOCKS = new Set(['P', 'DIV', 'LI', 'TR', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'PRE', 'UL', 'OL', 'TABLE', 'HR']);
+const plainCache = new Map();
+function plain(v) {
+  v = String(v ?? '');
+  if (!HTML_RE.test(v)) return v;
+  if (plainCache.has(v)) return plainCache.get(v);
+  let s = '';
+  (function walk(n) {
+    for (const c of n.childNodes) {
+      if (c.nodeType === 3) s += c.textContent;
+      else if (c.nodeType === 1 && !DROP.has(c.tagName)) {
+        if (c.tagName === 'BR') { s += '\n'; continue; }
+        if (c.tagName === 'TD' || c.tagName === 'TH') s += ' ';
+        const b = BLOCKS.has(c.tagName);
+        if (b && !s.endsWith('\n')) s += '\n';
+        walk(c);
+        if (b && !s.endsWith('\n')) s += '\n';
+      }
+    }
+  })(new DOMParser().parseFromString(v, 'text/html').body);
+  const text = s.replace(/[\u200b\ufeff]/g, '').replace(/\u00a0/g, ' ').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  plainCache.set(v, text);
+  return text;
+}
+
 // Excel-style column filters: column -> Set of allowed values (session only)
 let colFilters = {};
-const cellVal = (r, c) => String(r[c] ?? '');
+const cellVal = (r, c) => plain(r[c]);
 const passes = (r, skip) => Object.entries(colFilters).every(([c, set]) => c === skip || !dataset.columns.includes(c) || set.has(cellVal(r, c)));
 let dataset = null, settings = {}, reviews = {}, selectedId = null, visible = [];
 
@@ -245,7 +303,7 @@ function applyLayout() {
 
 function render() {
   const has = !!dataset;
-  $('#empty').hidden = has; $('#app').hidden = !has; $('#fieldsBtn').hidden = !has;
+  $('#empty').hidden = has; $('#app').hidden = !has; $('#fieldsBtn').hidden = !has; $('#exportBtn').hidden = !has;
   if (!has) { $('#info').textContent = ''; return; }
   $('#info').textContent = `${dataset.fileName} · ${dataset.rows.length} items`;
   if (!settings.idCol) return openFields();
@@ -255,7 +313,7 @@ function render() {
 function renderList() {
   const q = $('#search').value.trim().toLowerCase();
   visible = dataset.rows.filter(r =>
-    (!q || Object.values(r).some(v => String(v).toLowerCase().includes(q))) && passes(r));
+    (!q || Object.values(r).some(v => plain(v).toLowerCase().includes(q))) && passes(r));
   const total = dataset.rows.length, isFiltered = visible.length !== total;
   $('#count').textContent = isFiltered ? `Showing ${visible.length} of ${total} items` : `${total} items`;
   $('#count').classList.toggle('filtered', isFiltered);
@@ -263,7 +321,7 @@ function renderList() {
   $('#clearFilters').hidden = !nActive; $('#clearFilters').textContent = `Clear filters (${nActive})`;
   if (settings.sortCol && dataset.columns.includes(settings.sortCol)) {
     const dir = settings.sortDir === 'desc' ? -1 : 1, col = settings.sortCol;
-    visible.sort((a, b) => dir * collator.compare(a[col] ?? '', b[col] ?? ''));
+    visible.sort((a, b) => dir * collator.compare(plain(a[col]), plain(b[col])));
   }
   if (!visible.some(r => rid(r) === selectedId)) selectedId = visible[0] ? rid(visible[0]) : null;
   const cols = listCols();
@@ -272,23 +330,24 @@ function renderList() {
   const body = visible.map(r => {
     const id = rid(r);
     return `<div class="row ${id === selectedId ? 'sel' : ''}" data-id="${esc(id)}">${cols.map(c =>
-      `<div class="cell ${c === settings.idCol ? 'id' : ''}" title="${esc(r[c])}">${esc(r[c])}</div>`).join('')}</div>`;
+      `<div class="cell ${c === settings.idCol ? 'id' : ''}" title="${esc(plain(r[c]))}">${esc(plain(r[c]))}</div>`).join('')}</div>`;
   }).join('');
   $('#list').innerHTML = head + (visible.length ? body : '<div class="empty">No matching items.</div>');
 }
 
+const ed = (c, rich) => c === settings.idCol ? '' : rich ? 'contenteditable="true" data-rich="1"' : 'contenteditable="plaintext-only"';
 function renderPreview() {
   const row = dataset.rows.find(r => rid(r) === selectedId);
   if (!row) { $('#right').innerHTML = '<div class="empty">Select an item.</div>'; return; }
   const id = rid(row), rv = reviews[id] || { comments: [] };
   $('#right').innerHTML = `
-    <div class="meta">${esc(id)}</div><h2>${esc(row[settings.titleCol])}</h2>
+    <div class="meta">${esc(id)}</div><h2 class="edit" ${ed(settings.titleCol)} data-col="${esc(settings.titleCol)}" spellcheck="false">${esc(plain(row[settings.titleCol]))}</h2>
     <div class="fields">${settings.previewCols.map(c => {
       const h = settings.previewHeights[c];
       return `<div class="fld" data-target="preview" data-col="${esc(c)}">
         <span class="grip" draggable="true" data-drag="preview" data-col="${esc(c)}" title="Drag to reorder">⋮⋮</span>
         <div class="lbl">${esc(c)}<span class="lh"></span></div>
-        <div class="val" data-col="${esc(c)}" ${h ? `style="height:${h}px"` : ''}>${esc(row[c]) || '<span class="meta">—</span>'}</div></div>`;
+        <div class="val edit ${isRich(row[c]) ? 'rich' : ''}" ${ed(c, isRich(row[c]))} spellcheck="false" data-col="${esc(c)}" ${h ? `style="height:${h}px"` : ''}>${isRich(row[c]) ? sanitizeHTML(row[c]) : esc(row[c])}</div></div>`;
     }).join('') || '<div class="meta">No preview fields chosen. Use Fields… to pick some.</div>'}</div>
     <div class="review">
       ${rv.comments.map(c => `<div class="comment"><b>${esc(c.author)}</b> <span class="meta">${fmt(c.created)}</span><br>${esc(c.text)}</div>`).join('')}
@@ -319,7 +378,7 @@ function openFilter(btn) {
     <div class="mi" data-act="clear" ${colFilters[c] ? '' : 'style="opacity:.45"'}>Clear filter from “${esc(c)}”</div>
     <input class="q" placeholder="Search values…">
     <div class="vals"><label><input type="checkbox" class="all"> <b>(Select all)</b></label>${vals.map((v, i) =>
-      `<label data-t="${esc(v.toLowerCase())}"><input type="checkbox" class="v" data-i="${i}" ${chosen.has(v) ? 'checked' : ''}> ${v ? esc(v) : '(Blanks)'}<span class="n">${counts.get(v)}</span></label>`).join('')}</div>
+      `<label data-t="${esc(v.toLowerCase())}"><input type="checkbox" class="v" data-i="${i}" ${chosen.has(v) ? 'checked' : ''}> ${v ? esc(v.length > 80 ? v.slice(0, 80) + '…' : v) : '(Blanks)'}<span class="n">${counts.get(v)}</span></label>`).join('')}</div>
     <div class="btns"><button data-act="cancel">Cancel</button><button class="primary" data-act="ok">OK</button></div>`;
   document.body.appendChild(pop);
   const r = (btn.closest('.hc') || btn).getBoundingClientRect();
@@ -439,6 +498,44 @@ document.addEventListener('mouseup', e => {
     if (h && h !== settings.previewHeights[v.dataset.col]) { settings.previewHeights[v.dataset.col] = h; changed = true; }
   });
   if (changed) saveSettings();
+});
+
+// ---- editing item values (preview pane) ----
+const csvCell = v => /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+$('#exportBtn').onclick = () => {
+  const lines = [dataset.columns, ...dataset.rows.map(r => dataset.columns.map(c => String(r[c] ?? '')))].map(r => r.map(csvCell).join(','));
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv' }));
+  a.download = dataset.fileName.replace(/\.csv$/i, '') + '-edited.csv';
+  a.click(); URL.revokeObjectURL(a.href);
+};
+$('#right').addEventListener('focusin', e => {
+  if (e.target.classList?.contains('edit')) e.target.dataset.orig = e.target.dataset.rich ? e.target.innerHTML : e.target.textContent;
+});
+const show = (el, v) => { if (el.dataset.rich) el.innerHTML = sanitizeHTML(v); else el.textContent = plain(v); };
+$('#right').addEventListener('keydown', e => {
+  if (!e.target.classList?.contains('edit')) return;
+  if (e.key === 'Escape') { if (e.target.dataset.rich) e.target.innerHTML = e.target.dataset.orig; else e.target.textContent = e.target.dataset.orig; e.target.blur(); }
+  else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || e.target.tagName === 'H2')) { e.preventDefault(); e.target.blur(); }
+});
+$('#right').addEventListener('focusout', async e => {
+  const el = e.target; if (!el.classList?.contains('edit') || el.dataset.orig === undefined) return;
+  const col = el.dataset.col, id = selectedId, rich = !!el.dataset.rich;
+  const row = dataset.rows.find(r => rid(r) === id);
+  if (!row) return;
+  const cur = String(row[col] ?? '');
+  const value = rich ? sanitizeHTML(el.innerHTML) : el.textContent.trim();
+  if (value === (rich ? sanitizeHTML(cur) : plain(cur))) { show(el, cur); return; }   // unchanged: keep the original untouched
+  row[col] = value; show(el, value);
+  document.querySelectorAll('#right .edit').forEach(o => { if (o !== el && o.dataset.col === col) show(o, value); });
+  renderList();
+  try {
+    const res = await send('items/update', 'POST', { id, field: col, value });
+    if (!res.ok) throw new Error(res.error || 'Save failed');
+  } catch (err) {
+    row[col] = cur; alert('Could not save the edit: ' + err.message);
+    renderList(); if (selectedId === id) renderPreview();
+  }
 });
 
 // ---- events ----

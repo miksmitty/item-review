@@ -15,4 +15,9 @@ server's `/api` endpoints.
 It also works behind a proxy that serves it under a path prefix (for example
 `https://host/proxy/3001/`); open that address with the trailing slash.
 
+Click any value in the preview to edit it (Ctrl/Cmd+Enter or clicking away saves, Esc cancels).
+The ID column is read-only. Use **Export CSV** to download the data with your edits.
+Rich text cells from SharePoint (HTML) are shown formatted, with scripts and unsafe markup
+stripped, and are searched, sorted and filtered as plain text.
+
 Imported data, field choices and reviews are stored in the `data/` folder.
