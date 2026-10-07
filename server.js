@@ -50,8 +50,11 @@ async function api(req, res, url) {
 
   if (parts[1] === 'dataset' && method === 'POST') {
     if (!Array.isArray(body.columns) || !Array.isArray(body.rows)) return send(res, 400, { error: 'columns and rows required' });
-    save('dataset', { fileName: String(body.fileName || ''), columns: body.columns, rows: body.rows, imported: new Date().toISOString() });
-    return send(res, 200, { ok: true, count: body.rows.length });
+    // Large files arrive in several chunks; chunks after the first set append: true.
+    const prev = body.append ? load('dataset', null) : null;
+    const rows = prev ? prev.rows.concat(body.rows) : body.rows;
+    save('dataset', { fileName: String(body.fileName || (prev && prev.fileName) || ''), columns: body.columns, rows, imported: new Date().toISOString() });
+    return send(res, 200, { ok: true, count: rows.length });
   }
 
   if (parts[1] === 'settings' && method === 'POST') {

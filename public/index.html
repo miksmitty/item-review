@@ -120,7 +120,12 @@ const STATUS = { pending: 'Pending', approved: 'Approved', changes_requested: 'C
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = d => new Date(d).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
-const send = (path, method, body) => fetch('/api/' + path, { method: method === 'PUT' ? 'POST' : method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
+async function send(path, method, body) {
+  const res = await fetch('/api/' + path, { method: method === 'PUT' ? 'POST' : method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const text = await res.text();
+  try { return JSON.parse(text); }
+  catch { throw new Error(`Server replied ${res.status} ${res.statusText} to ${path}, not JSON: ${text.slice(0, 160).replace(/\s+/g, ' ')}`); }
+}
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 let dataset = null, settings = {}, reviews = {}, selectedId = null, visible = [];
@@ -176,8 +181,10 @@ async function doImport(f) {
     return name;
   });
   const rows = parsed.slice(1).map(r => Object.fromEntries(columns.map((c, i) => [c, r[i] ?? ''])));
-  const saved = await send('dataset', 'PUT', { fileName: f.name, columns, rows });
-  if (!saved.ok) throw new Error(saved.error || 'The server did not accept the data');
+  for (let i = 0; i < rows.length; i += 200) {   // chunked so proxies with body-size limits cope
+    const saved = await send('dataset', 'POST', { fileName: f.name, columns, rows: rows.slice(i, i + 200), append: i > 0 });
+    if (!saved.ok) throw new Error(saved.error || 'The server did not accept the data');
+  }
   // Keep field choices if the same columns exist, otherwise guess sensible defaults.
   const keep = settings.idCol && columns.includes(settings.idCol);
   if (!keep) {
