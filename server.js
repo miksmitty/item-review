@@ -102,8 +102,14 @@ function serveStatic(req, res, url) {
   });
 }
 
-http.createServer((req, res) => {
+const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
   if (url.pathname.startsWith('/api/')) return api(req, res, url);
   serveStatic(req, res, url);
-}).listen(PORT, () => console.log(`Item Review running at http://localhost:${PORT}`));
+});
+server.on('error', err => {
+  if (err.code === 'EADDRINUSE') console.error(`Port ${PORT} is already in use by another process, so Item Review did not start. Stop that process or set a different PORT.`);
+  else console.error(err);
+  process.exit(1);
+});
+server.listen(PORT, () => console.log(`Item Review running at http://localhost:${PORT}`));

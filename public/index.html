@@ -200,14 +200,17 @@ async function doImport(f) {
 
 // ---- state ----
 async function load() {
+  let detail = '';
   try {
     const res = await fetch('/api/state');
-    ({ dataset, settings, reviews } = JSON.parse(await res.text()));
+    const text = await res.text();
+    detail = `/api/state replied ${res.status} ${res.statusText}: ${text.slice(0, 120).replace(/\s+/g, ' ')}`;
+    ({ dataset, settings, reviews } = JSON.parse(text));
   } catch {
     $('#empty').hidden = false; $('#app').hidden = true; $('#importBtn').hidden = true;
     $('#empty').innerHTML = `<div id="drop"><b>This page isn't being served by the Item Review server.</b><br><br>
       Stop whatever is serving it, then in the project folder run <code>node server.js</code>
-      and open <code>http://localhost:3120</code> (or the port the server prints).</div>`;
+      and open <code>http://localhost:3120</code> (or the port the server prints).<br><br><span class="meta">${esc(detail)}</span></div>`;
     return;
   }
   if (dataset && !dataset.columns.includes(settings.idCol)) settings = {};
