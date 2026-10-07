@@ -33,12 +33,14 @@ function readBody(req) {
 // State: dataset {fileName, columns, rows, imported}, settings, reviews {[id]: {status, comments}}
 async function api(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean);
+  // Some corporate proxies block PUT, so PUT and POST are treated the same.
+  const method = req.method === 'PUT' ? 'POST' : req.method;
   let body = {};
-  if (req.method !== 'GET') {
+  if (method !== 'GET') {
     try { body = await readBody(req); } catch { return send(res, 400, { error: 'Invalid JSON' }); }
   }
 
-  if (parts[1] === 'state' && req.method === 'GET') {
+  if (parts[1] === 'state' && method === 'GET') {
     return send(res, 200, {
       dataset: load('dataset', null),
       settings: load('settings', {}),
@@ -46,19 +48,19 @@ async function api(req, res, url) {
     });
   }
 
-  if (parts[1] === 'dataset' && req.method === 'PUT') {
+  if (parts[1] === 'dataset' && method === 'POST') {
     if (!Array.isArray(body.columns) || !Array.isArray(body.rows)) return send(res, 400, { error: 'columns and rows required' });
     save('dataset', { fileName: String(body.fileName || ''), columns: body.columns, rows: body.rows, imported: new Date().toISOString() });
     return send(res, 200, { ok: true, count: body.rows.length });
   }
 
-  if (parts[1] === 'settings' && req.method === 'PUT') {
+  if (parts[1] === 'settings' && method === 'POST') {
     save('settings', body);
     return send(res, 200, { ok: true });
   }
 
   // /api/reviews/:id/status, /api/reviews/:id/comments (id is URL-encoded)
-  if (parts[1] === 'reviews' && parts[2] && req.method === 'PUT' && parts[3] === 'status') {
+  if (parts[1] === 'reviews' && parts[2] && method === 'POST' && parts[3] === 'status') {
     if (!STATUSES.includes(body.status)) return send(res, 400, { error: 'Bad status' });
     const reviews = load('reviews', {});
     const id = decodeURIComponent(parts[2]);
@@ -68,7 +70,7 @@ async function api(req, res, url) {
     return send(res, 200, reviews[id]);
   }
 
-  if (parts[1] === 'reviews' && parts[2] && req.method === 'POST' && parts[3] === 'comments') {
+  if (parts[1] === 'reviews' && parts[2] && method === 'POST' && parts[3] === 'comments') {
     if (!body.text || !String(body.text).trim()) return send(res, 400, { error: 'Text required' });
     const reviews = load('reviews', {});
     const id = decodeURIComponent(parts[2]);
