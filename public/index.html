@@ -125,6 +125,7 @@
   <span class="meta" id="info"></span>
   <button id="fieldsBtn" hidden>Fields…</button>
   <button id="exportBtn" hidden title="Download the data, including your edits and comments, as CSV">Export CSV</button>
+  <button id="clearBtn" hidden title="Remove the loaded data from this browser">Clear data</button>
   <button id="importBtn">Import CSV</button>
   <input type="file" id="file" accept=".csv,text/csv" hidden>
 </header>
@@ -158,12 +159,23 @@
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = d => new Date(d).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
-async function send(path, method, body) {
-  const res = await fetch('api/' + path, { method: method === 'PUT' ? 'POST' : method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const text = await res.text();
-  try { return JSON.parse(text); }
-  catch { throw new Error(`Server replied ${res.status} ${res.statusText} to ${path}, not JSON: ${text.slice(0, 160).replace(/\s+/g, ' ')}`); }
+// ---- Browser-only storage (IndexedDB). Nothing is ever sent to the server: the CSV is the data. ----
+const openDB = () => new Promise((res, rej) => { const r = indexedDB.open('item-review', 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+async function kvGet(k) {
+  try { const db = await openDB(); return await new Promise((res, rej) => { const q = db.transaction('kv').objectStore('kv').get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
+  catch { return undefined; }
 }
+async function kvSet(k, v) {
+  try {
+    const db = await openDB();
+    await new Promise((res, rej) => { const t = db.transaction('kv', 'readwrite'); v === undefined ? t.objectStore('kv').delete(k) : t.objectStore('kv').put(v, k); t.oncomplete = res; t.onerror = () => rej(t.error); });
+  } catch (e) { console.warn('Could not save to browser storage', e); }
+}
+let saveTimer;
+const flush = () => { clearTimeout(saveTimer); return kvSet('dataset', dataset ? { fileName: dataset.fileName, columns: dataset.columns, rows: dataset.rows, comments } : undefined); };
+const saveData = () => { clearTimeout(saveTimer); saveTimer = setTimeout(flush, 150); };
+const saveSettings = () => kvSet('settings', settings);
+addEventListener('pagehide', flush);
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 // ---- SharePoint rich text: cells may contain HTML. Show it safely, search/sort/filter on plain text. ----
@@ -219,7 +231,7 @@ function plain(v) {
 let colFilters = {};
 const cellVal = (r, c) => plain(r[c]);
 const passes = (r, skip) => Object.entries(colFilters).every(([c, set]) => c === skip || !dataset.columns.includes(c) || set.has(cellVal(r, c)));
-let dataset = null, settings = {}, reviews = {}, selectedId = null, visible = [];
+let dataset = null, settings = {}, comments = {}, selectedId = null, visible = [];   // comments: item ID -> [{author, text, created}]
 
 // ---- CSV parsing (RFC 4180: quotes, escaped quotes, embedded newlines) ----
 async function readText(f) {
@@ -259,63 +271,75 @@ function guessColumn(columns, patterns) {
 }
 
 async function importFile(f) {
+  if (dataset && !confirm('Replace the current data? Export first if you want to keep your edits and comments.')) return;
   try { await doImport(f); }
   catch (err) { console.error(err); alert('Import failed: ' + (err.message || err)); }
+}
+function defaultSettings(columns) {
+  const idCol = guessColumn(columns, [/^id$/i, /\bid\b/i]);
+  const titleCol = guessColumn(columns.filter(c => c !== idCol), [/^title$/i, /title|name/i]);
+  const others = columns.filter(c => c !== idCol && c !== titleCol);
+  return { idCol, titleCol, listCols: [idCol, titleCol, ...others.slice(0, 2)], previewCols: others.slice(0, 8), listWidths: {}, previewHeights: {} };
+}
+function fixSettings() {   // drop layout entries for columns the current data doesn't have
+  if (!settings.idCol) return;
+  const ok = c => dataset.columns.includes(c);
+  settings.listCols = (settings.listCols || []).filter(ok);
+  settings.previewCols = (settings.previewCols || []).filter(c => ok(c) || isSep(c));
+  settings.sepLabels ||= {}; settings.listWidths ||= {}; settings.previewHeights ||= {};
+}
+// Comments travel in the CSV as one column: "Author (yyyy-mm-dd hh:mm): text", one comment per line.
+const COMMENT_START = /^(.+?) \((\d{4}-\d{2}-\d{2} \d{2}:\d{2})\): ?/;
+function parseComments(text) {
+  const list = [];
+  for (const line of String(text ?? '').split(/\r?\n/)) {
+    const m = COMMENT_START.exec(line);
+    if (m) list.push({ author: m[1], created: new Date(m[2].replace(' ', 'T')).toISOString(), text: line.slice(m[0].length) });
+    else if (list.length) list[list.length - 1].text += '\n' + line;
+  }
+  return list;
 }
 async function doImport(f) {
   const parsed = parseCSV(await readText(f));
   if (parsed.length < 2) throw new Error('That file has no data rows.');
   const seen = {};
-  const columns = parsed[0].map((c, i) => {
+  let columns = parsed[0].map((c, i) => {
     let name = c.trim() || `Column ${i + 1}`;
     if (seen[name]) name += ` (${++seen[name]})`; else seen[name] = 1;
     return name;
   });
   const rows = parsed.slice(1).map(r => Object.fromEntries(columns.map((c, i) => [c, r[i] ?? ''])));
-  for (let i = 0; i < rows.length; i += 200) {   // chunked so proxies with body-size limits cope
-    const saved = await send('dataset', 'POST', { fileName: f.name, columns, rows: rows.slice(i, i + 200), append: i > 0 });
-    if (!saved.ok) throw new Error(saved.error || 'The server did not accept the data');
+  // A "Comments" column in our own format becomes live comments again (and leaves the field list).
+  const cc = columns.find(c => c === 'Comments' || c === 'Review comments');
+  let imported = null;
+  if (cc && rows.every(r => !String(r[cc]).trim() || COMMENT_START.test(String(r[cc])))) {
+    imported = rows.map(r => parseComments(r[cc]));
+    rows.forEach(r => delete r[cc]);
+    columns = columns.filter(c => c !== cc);
   }
   // Keep field choices if the same columns exist, otherwise guess sensible defaults.
   const keep = settings.idCol && columns.includes(settings.idCol);
-  if (!keep) {
-    const idCol = guessColumn(columns, [/^id$/i, /\bid\b/i]);
-    const titleCol = guessColumn(columns.filter(c => c !== idCol), [/^title$/i, /title|name/i]);
-    const others = columns.filter(c => c !== idCol && c !== titleCol);
-    settings = { idCol, titleCol, listCols: [idCol, titleCol, ...others.slice(0, 2)], previewCols: others.slice(0, 8), listWidths: {}, previewHeights: {} };
-    await send('settings', 'PUT', settings);
-  }
-  colFilters = {};
-  await load();
+  if (!keep) settings = defaultSettings(columns);
+  dataset = { fileName: f.name, columns, rows };
+  fixSettings();
+  comments = {};
+  if (imported) rows.forEach((r, i) => { if (imported[i].length) comments[rid(r)] = imported[i]; });
+  selectedId = null; colFilters = {};
+  await Promise.all([flush(), saveSettings()]);
+  render();
   if (!keep) openFields();
 }
 
 // ---- state ----
 async function load() {
-  let detail = '';
-  try {
-    const res = await fetch('api/state');
-    const text = await res.text();
-    detail = `/api/state replied ${res.status} ${res.statusText}: ${text.slice(0, 120).replace(/\s+/g, ' ')}`;
-    ({ dataset, settings, reviews } = JSON.parse(text));
-  } catch {
-    $('#empty').hidden = false; $('#app').hidden = true; $('#importBtn').hidden = true;
-    $('#empty').innerHTML = `<div id="drop"><b>This page isn't being served by the Item Review server.</b><br><br>
-      Stop whatever is serving it, then in the project folder run <code>node server.js</code>
-      and open <code>http://localhost:3120</code> (or the port the server prints).<br><br><span class="meta">${esc(detail)}</span></div>`;
-    return;
-  }
-  if (dataset && !dataset.columns.includes(settings.idCol)) settings = {};
-  if (settings.idCol) {
-    const ok = c => dataset.columns.includes(c);
-    settings.listCols = (settings.listCols || []).filter(ok);
-    settings.previewCols = (settings.previewCols || []).filter(c => ok(c) || isSep(c));
-    settings.sepLabels ||= {};
-    settings.listWidths ||= {}; settings.previewHeights ||= {};
-  }
+  const [d, s] = await Promise.all([kvGet('dataset'), kvGet('settings')]);
+  dataset = d ? { fileName: d.fileName, columns: d.columns, rows: d.rows } : null;
+  comments = d?.comments || {};
+  settings = s || {};
+  if (dataset && !dataset.columns.includes(settings.idCol)) settings = defaultSettings(dataset.columns);
+  fixSettings();
   render();
 }
-const saveSettings = () => send('settings', 'PUT', settings);
 const rid = row => String(row[settings.idCol] ?? '');
 const listCols = () => settings.listCols.length ? settings.listCols : [settings.idCol];
 const widthOf = c => settings.listWidths[c] || (c === settings.idCol ? 100 : 160);
@@ -329,7 +353,7 @@ function applyLayout() {
 
 function render() {
   const has = !!dataset;
-  $('#empty').hidden = has; $('#app').hidden = !has; $('#fieldsBtn').hidden = !has; $('#exportBtn').hidden = !has;
+  $('#empty').hidden = has; $('#app').hidden = !has; $('#fieldsBtn').hidden = !has; $('#exportBtn').hidden = !has; $('#clearBtn').hidden = !has;
   if (!has) { $('#info').textContent = ''; return; }
   $('#info').textContent = `${dataset.fileName} · ${dataset.rows.length} items`;
   if (!settings.idCol) return openFields();
@@ -375,7 +399,7 @@ const ed = (c, rich) => c === settings.idCol ? '' : rich ? 'contenteditable="tru
 function renderPreview() {
   const row = dataset.rows.find(r => rid(r) === selectedId);
   if (!row) { $('#right').innerHTML = '<div class="empty">Select an item.</div>'; return; }
-  const id = rid(row), rv = reviews[id] || { comments: [] };
+  const id = rid(row), cm = comments[id] || [];
   $('#right').innerHTML = `<div class="doc">
     <div class="doc-head"><span class="chip">${esc(id)}</span><h2 class="edit" ${ed(settings.titleCol)} data-col="${esc(settings.titleCol)}" spellcheck="false">${esc(plain(row[settings.titleCol]))}</h2></div>
     <div class="fields">${settings.previewCols.map(c => {
@@ -388,8 +412,8 @@ function renderPreview() {
     }).join('') || '<div class="meta">No preview fields chosen. Use Fields… to pick some.</div>'}</div>
     <button id="addSep" title="Add a section heading you can drag between fields">+ Add section</button>
     <div class="review">
-      <h3>Comments${rv.comments.length ? ` · ${rv.comments.length}` : ''}</h3>
-      ${rv.comments.map(c => `<div class="comment"><span class="av">${esc((c.author || '?')[0].toUpperCase())}</span><div class="bub"><div class="who"><b>${esc(c.author)}</b> <span class="meta">${fmt(c.created)}</span></div><div class="txt">${esc(c.text)}</div></div></div>`).join('')}
+      <h3>Comments${cm.length ? ` · ${cm.length}` : ''}</h3>
+      ${cm.map(c => `<div class="comment"><span class="av">${esc((c.author || '?')[0].toUpperCase())}</span><div class="bub"><div class="who"><b>${esc(c.author)}</b> <span class="meta">${fmt(c.created)}</span></div><div class="txt">${esc(c.text)}</div></div></div>`).join('')}
       <form class="cform"><input name="author" placeholder="Your name" value="${esc(localStorage.author || '')}">
         <input name="text" placeholder="Add a comment" required><button class="primary">Comment</button></form>
     </div></div>`;
@@ -545,11 +569,11 @@ $('#exportBtn').onclick = () => {
   // Comments go in as one extra column: "Author (yyyy-mm-dd hh:mm): text", one per line.
   const stamp = d => { const t = new Date(d), p = n => String(n).padStart(2, '0'); return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())} ${p(t.getHours())}:${p(t.getMinutes())}`; };
   const commentsCol = dataset.columns.includes('Comments') ? 'Review comments' : 'Comments';
-  const commentsOf = r => (reviews[rid(r)]?.comments || []).map(c => `${c.author} (${stamp(c.created)}): ${c.text}`).join('\n');
+  const commentsOf = r => (comments[rid(r)] || []).map(c => `${c.author} (${stamp(c.created)}): ${c.text}`).join('\n');
   const lines = [[...dataset.columns, commentsCol], ...dataset.rows.map(r => [...dataset.columns.map(c => String(r[c] ?? '')), commentsOf(r)])].map(r => r.map(csvCell).join(','));
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv' }));
-  a.download = dataset.fileName.replace(/\.csv$/i, '') + '-edited.csv';
+  a.download = dataset.fileName.replace(/(-edited)?\.csv$/i, '') + '-edited.csv';
   a.click(); URL.revokeObjectURL(a.href);
 };
 $('#right').addEventListener('focusin', e => {
@@ -571,14 +595,7 @@ $('#right').addEventListener('focusout', async e => {
   if (value === (rich ? sanitizeHTML(cur) : plain(cur))) { show(el, cur); return; }   // unchanged: keep the original untouched
   row[col] = value; show(el, value);
   document.querySelectorAll('#right .edit').forEach(o => { if (o !== el && o.dataset.col === col) show(o, value); });
-  renderList();
-  try {
-    const res = await send('items/update', 'POST', { id, field: col, value });
-    if (!res.ok) throw new Error(res.error || 'Save failed');
-  } catch (err) {
-    row[col] = cur; alert('Could not save the edit: ' + err.message);
-    renderList(); if (selectedId === id) renderPreview();
-  }
+  renderList(); saveData();
 });
 
 // ---- section separators ----
@@ -638,11 +655,16 @@ $('#list').onkeydown = e => {
   const n = visible[Math.max(0, Math.min(visible.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))];
   if (n) select(rid(n));
 };
-$('#right').onsubmit = async e => {
+$('#right').onsubmit = e => {
   e.preventDefault();
   const d = Object.fromEntries(new FormData(e.target)); localStorage.author = d.author;
-  reviews[selectedId] = await send(`reviews/${encodeURIComponent(selectedId)}/comments`, 'POST', d);
-  renderPreview();
+  (comments[selectedId] ||= []).push({ author: d.author.trim() || 'Reviewer', text: d.text.trim(), created: new Date().toISOString() });
+  saveData(); renderPreview();
+};
+$('#clearBtn').onclick = async () => {
+  if (!confirm('Remove the loaded data from this browser? Export first if you want to keep your edits and comments.')) return;
+  dataset = null; comments = {}; selectedId = null; colFilters = {};
+  await flush(); render();
 };
 load();
 </script>
