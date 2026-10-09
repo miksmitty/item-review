@@ -20,4 +20,7 @@ The ID column is read-only. Use **Export CSV** to download the data with your ed
 Rich text cells from SharePoint (HTML) are shown formatted, with scripts and unsafe markup
 stripped, and are searched, sorted and filtered as plain text.
 
+Use **+ Add section** under the preview fields to add a section heading; rename it by
+clicking its text, drag its ⋮⋮ grip to position it between fields, and remove it with ✕.
+
 Imported data, field choices and reviews are stored in the `data/` folder.

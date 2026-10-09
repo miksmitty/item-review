@@ -69,6 +69,18 @@
   .edit[contenteditable] { border-radius: 4px; outline: none; cursor: text; }
   .edit[contenteditable]:hover { background: var(--bg); }
   .edit[contenteditable]:focus { background: var(--card); box-shadow: 0 0 0 2px var(--accent); }
+  .sep { display: flex; align-items: center; gap: 10px; padding: 16px 0 4px; }
+  .sep-label { font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--accent); outline: none; border-radius: 4px; padding: 1px 4px; cursor: text; min-width: 20px; }
+  .sep-label:hover { background: var(--bg); }
+  .sep-label:focus { background: var(--card); box-shadow: 0 0 0 2px var(--accent); }
+  .sep-line { flex: 1; height: 1px; background: var(--border); }
+  .sep-del { border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 0 4px; opacity: 0; }
+  .sep:hover .sep-del, .sep-del:focus { opacity: 1; }
+  .sep-del:hover { color: #dc2626; }
+  .sep.over-before { box-shadow: inset 0 3px 0 var(--accent); }
+  .sep.over-after { box-shadow: inset 0 -3px 0 var(--accent); }
+  #addSep { margin-top: 10px; border: 1px dashed var(--border); background: transparent; color: var(--muted); }
+  #addSep:hover { color: var(--accent); border-color: var(--accent); }
   .val.rich { white-space: normal; }
   .val.rich p, .val.rich div { margin: 0 0 .5em; }
   .val.rich ul, .val.rich ol { margin: .2em 0; padding-left: 1.4em; }
@@ -284,7 +296,8 @@ async function load() {
   if (settings.idCol) {
     const ok = c => dataset.columns.includes(c);
     settings.listCols = (settings.listCols || []).filter(ok);
-    settings.previewCols = (settings.previewCols || []).filter(ok);
+    settings.previewCols = (settings.previewCols || []).filter(c => ok(c) || isSep(c));
+    settings.sepLabels ||= {};
     settings.listWidths ||= {}; settings.previewHeights ||= {};
   }
   render();
@@ -335,6 +348,16 @@ function renderList() {
   $('#list').innerHTML = head + (visible.length ? body : '<div class="empty">No matching items.</div>');
 }
 
+// A preview entry is either a column name or a section separator ("§sep:<id>", label in settings.sepLabels).
+const isSep = c => c.startsWith('§sep:');
+const sepHTML = c => {
+  const id = c.slice(5), label = (settings.sepLabels || {})[id] ?? 'Section';
+  return `<div class="sep" data-target="preview" data-col="${esc(c)}">
+    <span class="grip" draggable="true" data-drag="preview" data-col="${esc(c)}" title="Drag to reorder">⋮⋮</span>
+    <span class="sep-label" contenteditable="plaintext-only" spellcheck="false" data-sep="${esc(id)}">${esc(label)}</span>
+    <span class="sep-line"></span>
+    <button class="sep-del" data-sep="${esc(id)}" title="Remove section">✕</button></div>`;
+};
 const ed = (c, rich) => c === settings.idCol ? '' : rich ? 'contenteditable="true" data-rich="1"' : 'contenteditable="plaintext-only"';
 function renderPreview() {
   const row = dataset.rows.find(r => rid(r) === selectedId);
@@ -343,12 +366,14 @@ function renderPreview() {
   $('#right').innerHTML = `
     <div class="meta">${esc(id)}</div><h2 class="edit" ${ed(settings.titleCol)} data-col="${esc(settings.titleCol)}" spellcheck="false">${esc(plain(row[settings.titleCol]))}</h2>
     <div class="fields">${settings.previewCols.map(c => {
+      if (isSep(c)) return sepHTML(c);
       const h = settings.previewHeights[c];
       return `<div class="fld" data-target="preview" data-col="${esc(c)}">
         <span class="grip" draggable="true" data-drag="preview" data-col="${esc(c)}" title="Drag to reorder">⋮⋮</span>
         <div class="lbl">${esc(c)}<span class="lh"></span></div>
         <div class="val edit ${isRich(row[c]) ? 'rich' : ''}" ${ed(c, isRich(row[c]))} spellcheck="false" data-col="${esc(c)}" ${h ? `style="height:${h}px"` : ''}>${isRich(row[c]) ? sanitizeHTML(row[c]) : esc(row[c])}</div></div>`;
     }).join('') || '<div class="meta">No preview fields chosen. Use Fields… to pick some.</div>'}</div>
+    <button id="addSep" title="Add a section heading you can drag between fields">+ Add section</button>
     <div class="review">
       ${rv.comments.map(c => `<div class="comment"><b>${esc(c.author)}</b> <span class="meta">${fmt(c.created)}</span><br>${esc(c.text)}</div>`).join('')}
       <form class="cform"><input name="author" placeholder="Your name" value="${esc(localStorage.author || '')}">
@@ -441,7 +466,7 @@ document.addEventListener('dragstart', e => {
   const el = e.target.closest?.('[data-drag]'); if (!el) return;
   dragging = { kind: el.dataset.drag, col: el.dataset.col };
   e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', el.dataset.col);
-  const shown = el.closest('.fld') || el;
+  const shown = el.closest('.fld, .sep') || el;
   e.dataTransfer.setDragImage(shown, 10, 10);
   shown.classList.add('dragging');
 });
@@ -536,6 +561,31 @@ $('#right').addEventListener('focusout', async e => {
     row[col] = cur; alert('Could not save the edit: ' + err.message);
     renderList(); if (selectedId === id) renderPreview();
   }
+});
+
+// ---- section separators ----
+$('#right').addEventListener('click', e => {
+  if (e.target.id === 'addSep') {
+    const id = Date.now().toString(36);
+    settings.sepLabels ||= {}; settings.sepLabels[id] = 'New section';
+    settings.previewCols.push('§sep:' + id); saveSettings(); renderPreview();
+    const lbl = document.querySelector(`.sep-label[data-sep="${id}"]`);
+    lbl.focus(); getSelection().selectAllChildren(lbl);
+  }
+  const del = e.target.closest('.sep-del');
+  if (del) {
+    settings.previewCols = settings.previewCols.filter(c => c !== '§sep:' + del.dataset.sep);
+    delete settings.sepLabels[del.dataset.sep]; saveSettings(); renderPreview();
+  }
+});
+$('#right').addEventListener('keydown', e => {
+  if (e.target.classList?.contains('sep-label') && e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
+});
+$('#right').addEventListener('focusout', e => {
+  if (!e.target.classList?.contains('sep-label')) return;
+  const text = e.target.textContent.trim() || 'Section';
+  e.target.textContent = text;
+  if (settings.sepLabels[e.target.dataset.sep] !== text) { settings.sepLabels[e.target.dataset.sep] = text; saveSettings(); }
 });
 
 // ---- events ----
