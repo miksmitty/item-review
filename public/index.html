@@ -124,7 +124,7 @@
   <h1>Item Review</h1>
   <span class="meta" id="info"></span>
   <button id="fieldsBtn" hidden>Fields…</button>
-  <button id="exportBtn" hidden title="Download the data, including your edits, as CSV">Export CSV</button>
+  <button id="exportBtn" hidden title="Download the data, including your edits and comments, as CSV">Export CSV</button>
   <button id="importBtn">Import CSV</button>
   <input type="file" id="file" accept=".csv,text/csv" hidden>
 </header>
@@ -542,7 +542,11 @@ document.addEventListener('mouseup', e => {
 // ---- editing item values (preview pane) ----
 const csvCell = v => /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
 $('#exportBtn').onclick = () => {
-  const lines = [dataset.columns, ...dataset.rows.map(r => dataset.columns.map(c => String(r[c] ?? '')))].map(r => r.map(csvCell).join(','));
+  // Comments go in as one extra column: "Author (yyyy-mm-dd hh:mm): text", one per line.
+  const stamp = d => { const t = new Date(d), p = n => String(n).padStart(2, '0'); return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())} ${p(t.getHours())}:${p(t.getMinutes())}`; };
+  const commentsCol = dataset.columns.includes('Comments') ? 'Review comments' : 'Comments';
+  const commentsOf = r => (reviews[rid(r)]?.comments || []).map(c => `${c.author} (${stamp(c.created)}): ${c.text}`).join('\n');
+  const lines = [[...dataset.columns, commentsCol], ...dataset.rows.map(r => [...dataset.columns.map(c => String(r[c] ?? '')), commentsOf(r)])].map(r => r.map(csvCell).join(','));
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv' }));
   a.download = dataset.fileName.replace(/\.csv$/i, '') + '-edited.csv';
